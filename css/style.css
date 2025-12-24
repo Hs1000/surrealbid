@@ -1,0 +1,62 @@
+/* Global Page Styles */
+body {
+    margin: 0;
+    padding: 0;
+    background: #0b0b0b;
+    color: white;
+    font-family: 'Inter', sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    text-align: center;
+  }
+  
+  /* Content Container */
+  .container {
+    max-width: 650px;
+    padding: 40px;
+  }
+  
+  /* Title with Gradient */
+  h1 {
+    font-size: 52px;
+    background: linear-gradient(90deg, #b06cff, #ff72d2);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 15px;
+  }
+  
+  /* Description Text */
+  p {
+    font-size: 20px;
+    color: #cfcfcf;
+    line-height: 1.6;
+    margin-bottom: 30px;
+  }
+  
+  /* Button */
+  .btn {
+    padding: 14px 34px;
+    background: #7d39ff;
+    color: white;
+    border-radius: 8px;
+    text-decoration: none;
+    font-size: 18px;
+    font-weight: 500;
+    transition: 0.2s ease;
+    display: inline-block;
+  }
+  
+  .btn:hover {
+    background: #a775ff;
+    transform: translateY(-2px);
+  }
+  
+  /* Footer */
+  footer {
+    margin-top: 40px;
+    font-size: 14px;
+    color: #666;
+  }
+  
