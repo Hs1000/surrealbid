@@ -2,7 +2,176 @@ console.log("SurrealBid top-tier UI loaded.");
 
 const STORAGE_KEY = "surrealbid_auctions";
 const BIDS_STORAGE_KEY = "surrealbid_bids";
-const INR_PER_USD = 83; // rough static conversion; adjust as needed
+const EXCHANGE_RATE_CACHE_KEY = "surrealbid_exchange_rate";
+const EXCHANGE_RATE_CACHE_DURATION = 60 * 60 * 1000; // 1 hour in milliseconds
+const DEFAULT_INR_PER_USD = 83; // Fallback rate if API fails
+
+// Clear cached exchange rate (useful for debugging)
+function clearExchangeRateCache() {
+  try {
+    localStorage.removeItem(EXCHANGE_RATE_CACHE_KEY);
+    console.log('Exchange rate cache cleared');
+  } catch (e) {
+    console.warn('Error clearing cache:', e);
+  }
+}
+
+// Live exchange rate fetching
+async function getLiveExchangeRate() {
+  // Check cache first
+  try {
+    const cached = localStorage.getItem(EXCHANGE_RATE_CACHE_KEY);
+    if (cached) {
+      const { rate, timestamp } = JSON.parse(cached);
+      const now = Date.now();
+      if (now - timestamp < EXCHANGE_RATE_CACHE_DURATION) {
+        return rate;
+      }
+    }
+  } catch (e) {
+    console.warn('Error reading cached exchange rate:', e);
+  }
+
+  // Fetch live rate from API
+  try {
+    // Using exchangerate-api.com free endpoint (no API key required)
+    // This returns: { base: "USD", rates: { INR: 83.5, ... } }
+    const response = await fetch('https://api.exchangerate-api.com/v4/latest/USD');
+    if (!response.ok) throw new Error('API response not ok');
+    
+    const data = await response.json();
+    const inrPerUsd = data.rates?.INR;
+    
+    // Validate the rate is reasonable (should be between 70-100 INR per USD)
+    if (inrPerUsd && inrPerUsd > 70 && inrPerUsd < 100) {
+      console.log('Live exchange rate fetched:', inrPerUsd, 'INR per USD');
+      // Cache the rate
+      try {
+        localStorage.setItem(EXCHANGE_RATE_CACHE_KEY, JSON.stringify({
+          rate: inrPerUsd,
+          timestamp: Date.now()
+        }));
+      } catch (e) {
+        console.warn('Error caching exchange rate:', e);
+      }
+      return inrPerUsd;
+    } else {
+      console.warn('Invalid exchange rate received:', inrPerUsd);
+    }
+  } catch (error) {
+    console.warn('Error fetching live exchange rate:', error);
+  }
+
+  // Fallback to cached rate even if expired, but validate it
+  try {
+    const cached = localStorage.getItem(EXCHANGE_RATE_CACHE_KEY);
+    if (cached) {
+      const { rate } = JSON.parse(cached);
+      // Only use cached rate if it's reasonable
+      if (rate > 70 && rate < 100) {
+        console.log('Using cached exchange rate:', rate);
+        return rate;
+      } else {
+        console.warn('Cached rate is invalid, clearing cache:', rate);
+        localStorage.removeItem(EXCHANGE_RATE_CACHE_KEY);
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+
+  console.log('Using default exchange rate:', DEFAULT_INR_PER_USD);
+  return DEFAULT_INR_PER_USD;
+}
+
+// Get exchange rate (async wrapper)
+let exchangeRatePromise = null;
+function getExchangeRate() {
+  if (!exchangeRatePromise) {
+    exchangeRatePromise = getLiveExchangeRate();
+    // Reset promise after 5 minutes to allow refresh
+    setTimeout(() => {
+      exchangeRatePromise = null;
+    }, 5 * 60 * 1000);
+  }
+  return exchangeRatePromise;
+}
+
+// Helper function to convert INR to USD using current rate
+function convertINRtoUSD(inr) {
+  // Strict validation: rate must be between 70 and 100 (exclusive of 100)
+  if (!currentExchangeRate || currentExchangeRate <= 70 || currentExchangeRate >= 100) {
+    console.warn('Invalid exchange rate, using default for conversion. Current rate:', currentExchangeRate);
+    const defaultUsd = inr / DEFAULT_INR_PER_USD;
+    console.log(`Converted ₹${inr} using default rate (${DEFAULT_INR_PER_USD}): $${defaultUsd.toFixed(2)}`);
+    return defaultUsd;
+  }
+  const usd = inr / currentExchangeRate;
+  console.log(`Converted ₹${inr} using rate (${currentExchangeRate}): $${usd.toFixed(2)}`);
+  return usd;
+}
+
+// Clear invalid cached rates on page load
+(function clearInvalidCache() {
+  try {
+    const cached = localStorage.getItem(EXCHANGE_RATE_CACHE_KEY);
+    if (cached) {
+      const { rate } = JSON.parse(cached);
+      // If cached rate is invalid (like 100), clear it immediately
+      // Valid range: 70 < rate < 100 (exclusive)
+      if (!rate || rate <= 70 || rate >= 100) {
+        console.log('Clearing invalid cached exchange rate:', rate);
+        localStorage.removeItem(EXCHANGE_RATE_CACHE_KEY);
+      } else {
+        console.log('Valid cached exchange rate found:', rate);
+      }
+    }
+  } catch (e) {
+    console.warn('Error checking cache:', e);
+  }
+})();
+
+// Initialize exchange rate on page load
+let currentExchangeRate = DEFAULT_INR_PER_USD;
+getExchangeRate().then(rate => {
+  if (rate && rate > 70 && rate < 100) {
+    currentExchangeRate = rate;
+    console.log('Exchange rate loaded:', rate, 'INR per USD');
+    // Update displayed prices if on auctions page
+    if (document.querySelector('.auctions-grid')) {
+      updateAllPrices();
+    }
+  } else {
+    console.warn('Invalid exchange rate, using default:', rate);
+    // Force clear cache if rate is invalid
+    if (rate) {
+      try {
+        localStorage.removeItem(EXCHANGE_RATE_CACHE_KEY);
+      } catch (e) {}
+    }
+  }
+});
+
+// Function to update all price displays with current exchange rate
+function updateAllPrices() {
+  document.querySelectorAll('[data-price-element="true"]').forEach(priceSpan => {
+    const auctionId = priceSpan.dataset.auctionId;
+    const highestBid = getHighestBid(auctionId);
+    if (highestBid) {
+      const usd = convertINRtoUSD(highestBid.amount);
+      priceSpan.textContent = `₹${highestBid.amount.toLocaleString('en-IN')} (≈ $${usd.toFixed(2)})`;
+    } else {
+      // Get auction data to show starting bid
+      const auctions = loadStoredAuctions();
+      const auction = auctions.find(a => String(a.id) === auctionId);
+      if (auction) {
+        const bidAmount = auction.currentBidINR || 0;
+        const usd = convertINRtoUSD(bidAmount);
+        priceSpan.textContent = `₹${bidAmount.toLocaleString('en-IN')} (≈ $${usd.toFixed(2)})`;
+      }
+    }
+  });
+}
 
 function loadStoredAuctions() {
   try {
@@ -193,8 +362,8 @@ function addBid(auctionId, amount, bidderName, bidderEmail) {
       (typeof auction.currentBidINR === "number" ? auction.currentBidINR : 
        Number(auction.currentBid || 0) * 240000);
     
-    const usd = currentBidAmount / INR_PER_USD;
-    priceSpan.textContent = `₹${currentBidAmount.toLocaleString("en-IN")} (≈ $${usd.toFixed(0)})`;
+    const usd = convertINRtoUSD(currentBidAmount);
+    priceSpan.textContent = `₹${currentBidAmount.toLocaleString("en-IN")} (≈ $${usd.toFixed(2)})`;
     metaEl.textContent = "Current bid: ";
     metaEl.appendChild(priceSpan);
     
@@ -388,8 +557,8 @@ function updateBidPrice(auctionId) {
   
   const priceSpan = document.querySelector(`[data-price-element="true"][data-auction-id="${auctionId}"]`);
   if (priceSpan) {
-    const usd = highestBid.amount / INR_PER_USD;
-    priceSpan.textContent = `₹${highestBid.amount.toLocaleString('en-IN')} (≈ $${usd.toFixed(0)})`;
+    const usd = convertINRtoUSD(highestBid.amount);
+    priceSpan.textContent = `₹${highestBid.amount.toLocaleString('en-IN')} (≈ $${usd.toFixed(2)})`;
     
     // Add animation to show price update
     priceSpan.style.transition = 'all 0.3s ease';
