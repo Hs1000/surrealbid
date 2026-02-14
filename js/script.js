@@ -231,20 +231,91 @@ async function loadStoredAuctions() {
         // Handle both formats: { auctions: [...] } or direct array
         let remoteAuctions = [];
         if (data.record) {
+          // JSONBin.io v3 format: { record: { auctions: [...] } }
           remoteAuctions = Array.isArray(data.record) ? data.record : (data.record.auctions || []);
+        } else if (data.auctions) {
+          // Direct format: { auctions: [...] }
+          remoteAuctions = Array.isArray(data.auctions) ? data.auctions : [];
         } else if (Array.isArray(data)) {
+          // Direct array format: [...]
           remoteAuctions = data;
         }
         
         if (Array.isArray(remoteAuctions)) {
-          // Merge: remote is source of truth, but keep any local-only items (unsynced)
+          // Merge: remote is source of truth, but preserve local imageDataUrl if missing in remote
           const remoteIds = new Set(remoteAuctions.map(a => a.id));
           const localOnly = localAuctions.filter(a => !remoteIds.has(a.id));
-          const merged = [...remoteAuctions, ...localOnly];
           
-          // Cache merged data locally
+          // Merge remote auctions with local imageDataUrl preserved
+          const merged = remoteAuctions.map(remoteAuction => {
+            const localAuction = localAuctions.find(a => a.id === remoteAuction.id);
+            if (localAuction) {
+              // Merge: use remote as base, but preserve local imageDataUrl
+              const mergedAuction = { 
+                ...remoteAuction, 
+                imageDataUrl: localAuction.imageDataUrl || remoteAuction.imageDataUrl 
+              };
+              // Remove empty imageUrl if we have imageDataUrl or if it's empty
+              if (mergedAuction.imageDataUrl) {
+                // Prefer imageDataUrl, remove empty imageUrl
+                if (!mergedAuction.imageUrl || mergedAuction.imageUrl.trim().length === 0) {
+                  delete mergedAuction.imageUrl;
+                }
+              } else if (mergedAuction.imageUrl && mergedAuction.imageUrl.trim().length === 0) {
+                // Remove empty imageUrl strings
+                delete mergedAuction.imageUrl;
+              }
+              return mergedAuction;
+            }
+            // Remove empty imageUrl from remote auctions too
+            const cleanedRemote = { ...remoteAuction };
+            if (cleanedRemote.imageUrl && cleanedRemote.imageUrl.trim().length === 0) {
+              delete cleanedRemote.imageUrl;
+            }
+            return cleanedRemote;
+          });
+          
+          // Add local-only auctions (these already have imageDataUrl)
+          merged.push(...localOnly);
+          
+          console.log('Merged auctions with imageDataUrl preserved:', merged.map(a => ({
+            id: a.id,
+            hasImageDataUrl: !!a.imageDataUrl,
+            hasImageUrl: !!a.imageUrl
+          })));
+          
+          // Cache merged data locally (but preserve full local data with imageDataUrl)
           try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+            // Don't overwrite local storage with merged data - keep full local data
+            // The merged data is used for display, but we preserve the original local data
+            // This ensures imageDataUrl is never lost
+            const localData = localStorage.getItem(STORAGE_KEY);
+            if (localData) {
+              try {
+                const localParsed = JSON.parse(localData);
+                if (Array.isArray(localParsed)) {
+                  // Update only the remote auctions in local storage, preserve local imageDataUrl
+                  const updatedLocal = localParsed.map(localAuction => {
+                    const remoteAuction = remoteAuctions.find(a => a.id === localAuction.id);
+                    if (remoteAuction) {
+                      // Update from remote but keep local imageDataUrl
+                      return { ...remoteAuction, imageDataUrl: localAuction.imageDataUrl || remoteAuction.imageDataUrl };
+                    }
+                    return localAuction;
+                  });
+                  // Add any new remote auctions
+                  const localIds = new Set(updatedLocal.map(a => a.id));
+                  const newRemote = remoteAuctions.filter(a => !localIds.has(a.id));
+                  updatedLocal.push(...newRemote);
+                  localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedLocal));
+                }
+              } catch (e) {
+                // If parsing fails, just use merged
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+              }
+            } else {
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+            }
             console.log('✓ Loaded', merged.length, 'auctions (', remoteAuctions.length, 'remote +', localOnly.length, 'local)');
           } catch (e) {
             console.warn('Failed to cache to localStorage:', e);
@@ -271,6 +342,15 @@ async function loadStoredAuctions() {
   return localAuctions;
 }
 
+// Helper function to prepare auctions for shared storage (remove large imageDataUrl)
+function prepareAuctionsForSync(auctions) {
+  return auctions.map(auction => {
+    const { imageDataUrl, ...auctionWithoutImageData } = auction;
+    // Keep imageUrl, but remove imageDataUrl (base64 data is too large for API)
+    return auctionWithoutImageData;
+  });
+}
+
 // Save auctions to shared storage and localStorage
 async function saveStoredAuctions(list) {
   // Always save to localStorage first (for offline access and immediate availability)
@@ -285,7 +365,12 @@ async function saveStoredAuctions(list) {
   // Try to save to shared storage if enabled (non-blocking)
   if (USE_SHARED_STORAGE && SHARED_STORAGE_BIN_ID) {
     try {
-      const payload = { auctions: list, updatedAt: Date.now() };
+      // Remove imageDataUrl before syncing (too large for API, keep only imageUrl)
+      const auctionsForSync = prepareAuctionsForSync(list);
+      const payload = { auctions: auctionsForSync, updatedAt: Date.now() };
+      const payloadSize = JSON.stringify(payload).length;
+      const payloadSizeKB = (payloadSize / 1024).toFixed(2);
+      console.log(`Syncing ${auctionsForSync.length} auctions (payload: ${payloadSizeKB}KB)...`);
       
       // Create a timeout promise (10 seconds)
       const timeoutPromise = new Promise((_, reject) => 
@@ -405,7 +490,8 @@ function handleAuctionForm() {
     try {
       const title = /** @type {HTMLInputElement} */ (document.getElementById("title"))?.value.trim();
       const artist = /** @type {HTMLInputElement} */ (document.getElementById("artist"))?.value.trim();
-      const imageUrl = /** @type {HTMLInputElement} */ (document.getElementById("imageUrl"))?.value.trim();
+      const imageUrlRaw = /** @type {HTMLInputElement} */ (document.getElementById("imageUrl"))?.value.trim();
+      const imageUrl = imageUrlRaw && imageUrlRaw.length > 0 ? imageUrlRaw : undefined;
       const imageFileInput = /** @type {HTMLInputElement} */ (document.getElementById("imageFile"));
       const startBidRaw = /** @type {HTMLInputElement} */ (document.getElementById("startBid"))?.value;
       const durationRaw = /** @type {HTMLInputElement} */ (document.getElementById("durationMinutes"))?.value;
@@ -501,11 +587,14 @@ function handleAuctionForm() {
           id: `user-${now}`,
           title,
           artist,
-          imageUrl,
           currentBidINR: startBidINR,
           endTime,
           ...extra
         };
+        // Only add imageUrl if it's not empty (don't save empty strings)
+        if (imageUrl && imageUrl.trim().length > 0) {
+          newAuction.imageUrl = imageUrl.trim();
+        }
         auctions.push(newAuction);
         console.log('New auction object:', newAuction);
         console.log('Total auctions to save:', auctions.length);
@@ -536,8 +625,12 @@ function handleAuctionForm() {
         
         // Sync to shared storage BEFORE redirect (but don't wait if it's slow)
         if (USE_SHARED_STORAGE && SHARED_STORAGE_BIN_ID) {
-          const payload = { auctions: auctions, updatedAt: Date.now() };
-          console.log('Syncing', auctions.length, 'auctions to shared storage...');
+          // Remove imageDataUrl before syncing (too large for API, keep only imageUrl)
+          const auctionsForSync = prepareAuctionsForSync(auctions);
+          const payload = { auctions: auctionsForSync, updatedAt: Date.now() };
+          const payloadSize = JSON.stringify(payload).length;
+          const payloadSizeKB = (payloadSize / 1024).toFixed(2);
+          console.log(`Syncing ${auctionsForSync.length} auctions to shared storage (payload: ${payloadSizeKB}KB)...`);
           
           // Start the sync but don't wait for it
           const syncPromise = fetch(`${SHARED_STORAGE_API}/${SHARED_STORAGE_BIN_ID}`, {
@@ -676,12 +769,27 @@ function renderAuctions(allAuctions) {
 
     const imageDiv = document.createElement("div");
     imageDiv.className = "auction-image";
+    
+    // Debug: log image data for this auction
+    console.log(`Auction ${auction.id} image data:`, {
+      hasImageDataUrl: !!auction.imageDataUrl,
+      hasImageUrl: !!auction.imageUrl,
+      imageDataUrlLength: auction.imageDataUrl ? auction.imageDataUrl.length : 0,
+      imageUrl: auction.imageUrl
+    });
+    
     if ("imageClass" in auction && auction.imageClass) {
       imageDiv.classList.add("placeholder-image", auction.imageClass);
-    } else if (auction.imageDataUrl) {
+    } else if (auction.imageDataUrl && auction.imageDataUrl.length > 0) {
       imageDiv.style.backgroundImage = `url('${auction.imageDataUrl}')`;
-    } else if (auction.imageUrl) {
+      console.log(`Set imageDataUrl for auction ${auction.id}`);
+    } else if (auction.imageUrl && auction.imageUrl.length > 0) {
       imageDiv.style.backgroundImage = `url('${auction.imageUrl}')`;
+      console.log(`Set imageUrl for auction ${auction.id}`);
+    } else {
+      // No image - show placeholder
+      imageDiv.classList.add("placeholder-image");
+      console.warn(`No image data for auction ${auction.id} - showing placeholder`);
     }
 
     const body = document.createElement("div");
