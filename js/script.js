@@ -881,6 +881,10 @@ function createAuctionCard(auction, isEnded) {
    BID MODAL
 ====================================================== */
 
+/* ======================================================
+   BEAUTIFUL BID MODAL (RESTORED)
+====================================================== */
+
 function openBidModal(auctionId, title, artist, currentBid) {
   const existingModal = document.getElementById("bid-modal");
   if (existingModal) existingModal.remove();
@@ -893,18 +897,69 @@ function openBidModal(auctionId, title, artist, currentBid) {
     <div class="bid-modal">
       <div class="bid-modal-header">
         <h2>Place Your Bid</h2>
-        <button class="bid-modal-close">&times;</button>
+        <button class="bid-modal-close" onclick="closeBidModal()">&times;</button>
       </div>
-      <div class="bid-modal-body">
-        <h3>${title}</h3>
-        <p>by ${artist}</p>
-        <p>Current bid: ₹${currentBid.toLocaleString("en-IN")}</p>
 
-        <form id="bid-form">
-          <input id="bidder-name" type="text" placeholder="Your Name" required />
-          <input id="bidder-email" type="email" placeholder="Email (optional)" />
-          <input id="bid-amount" type="number" min="${currentBid + 1}" required />
-          <button type="submit">Place Bid</button>
+      <div class="bid-modal-body">
+        <div class="bid-artwork-info">
+          <h3>${title}</h3>
+          <p>by ${artist}</p>
+          <p class="bid-current-price">
+            Current bid: ₹${currentBid.toLocaleString("en-IN")}
+          </p>
+        </div>
+
+        <form id="bid-form" class="bid-form">
+          <div class="form-row">
+            <label for="bidder-name">Your Name</label>
+            <input 
+              id="bidder-name" 
+              type="text" 
+              required 
+              minlength="2" 
+              maxlength="100" 
+              placeholder="Enter your name"
+            />
+          </div>
+
+          <div class="form-row">
+            <label for="bidder-email">Email (optional)</label>
+            <input 
+              id="bidder-email" 
+              type="email" 
+              maxlength="254" 
+              placeholder="your@email.com"
+            />
+          </div>
+
+          <div class="form-row">
+            <label for="bid-amount">Your Bid Amount (INR)</label>
+            <input 
+              id="bid-amount" 
+              type="number" 
+              required 
+              min="${currentBid + 1}" 
+              step="1"
+              placeholder="Enter amount"
+            />
+            <p class="form-hint">
+              Minimum bid: ₹${(currentBid + 1).toLocaleString("en-IN")}
+            </p>
+          </div>
+
+          <div class="bid-modal-actions">
+            <button 
+              type="button" 
+              class="btn btn-secondary" 
+              onclick="closeBidModal()"
+            >
+              Cancel
+            </button>
+
+            <button type="submit" class="btn">
+              Place Bid
+            </button>
+          </div>
         </form>
       </div>
     </div>
@@ -912,13 +967,10 @@ function openBidModal(auctionId, title, artist, currentBid) {
 
   document.body.appendChild(modal);
 
-  modal.querySelector(".bid-modal-close").onclick = closeBidModal;
+  // Handle submission
+  const form = document.getElementById("bid-form");
 
-  modal.addEventListener("click", e => {
-    if (e.target === modal) closeBidModal();
-  });
-
-  document.getElementById("bid-form").addEventListener("submit", e => {
+  form.addEventListener("submit", function (e) {
     e.preventDefault();
 
     const amount = Math.floor(
@@ -929,14 +981,34 @@ function openBidModal(auctionId, title, artist, currentBid) {
     const email = document.getElementById("bidder-email").value.trim();
 
     if (!amount || amount <= currentBid) {
-      alert("Bid must be higher than current bid.");
+      alert(
+        `Your bid must be higher than ₹${currentBid.toLocaleString("en-IN")}`
+      );
       return;
     }
 
-    addBid(auctionId, amount, name, email).then(() => {
-      closeBidModal();
-      loadStoredAuctions().then(renderAuctions);
-    });
+    if (!name) {
+      alert("Please enter your name.");
+      return;
+    }
+
+    addBid(auctionId, amount, name, email)
+      .then(() => {
+        closeBidModal();
+
+        // Re-render auctions so price updates immediately
+        return loadStoredAuctions();
+      })
+      .then(renderAuctions)
+      .catch(err => {
+        console.error("Bid error:", err);
+        alert("Error placing bid. Please try again.");
+      });
+  });
+
+  // Close when clicking outside
+  modal.addEventListener("click", function (e) {
+    if (e.target === modal) closeBidModal();
   });
 }
 
@@ -947,6 +1019,7 @@ function closeBidModal() {
 
 window.openBidModal = openBidModal;
 window.closeBidModal = closeBidModal;
+
 
 // console.log("SurrealBid loaded");
 
