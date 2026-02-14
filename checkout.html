@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Checkout | SurrealBid</title>
+
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+</head>
+<body>
+
+  <!-- Background -->
+  <div class="background"></div>
+
+  <!-- NAVIGATION BAR -->
+  <nav class="navbar">
+    <div class="nav-left">
+      <a href="index.html" class="logo">SurrealBid</a>
+      <a href="auctions.html" class="nav-link">Auctions</a>
+      <a href="index.html#about" class="nav-link">About</a>
+      <a href="mailto:hardiksingh850@gmail.com" class="nav-link">Contact</a>
+    </div>
+
+    <div class="nav-right">
+      <a href="submit-auction.html" class="nav-btn">Submit Artwork</a>
+    </div>
+  </nav>
+
+  <main class="content form-page">
+    <section class="form-card">
+      <h1 class="title">Complete Your Purchase</h1>
+      <p class="subtitle">
+        Enter your details to proceed with the payment.
+      </p>
+      
+      <div id="checkout-details" class="checkout-summary">
+        <!-- Will be populated by payment.js -->
+      </div>
+
+      <form id="checkout-form" class="auction-form">
+        <div class="form-row">
+          <label for="name">Full Name</label>
+          <input id="name" name="name" type="text" required minlength="2" maxlength="100" 
+                 pattern="[A-Za-z\s]{2,100}" placeholder="John Doe" 
+                 title="Name must be 2-100 characters, letters and spaces only" />
+        </div>
+
+        <div class="form-row">
+          <label for="email">Email</label>
+          <input id="email" name="email" type="email" required maxlength="254" 
+                 placeholder="john@example.com" 
+                 title="Please enter a valid email address" />
+        </div>
+
+        <div class="form-row">
+          <label for="phone">Phone Number</label>
+          <input id="phone" name="phone" type="tel" required minlength="10" maxlength="15" 
+                 pattern="[\+]?[0-9\s\-\(\)]{10,15}" placeholder="+91 9876543210" 
+                 title="Phone number must be 10-15 digits" />
+        </div>
+
+        <div class="form-row">
+          <label for="address">Shipping Address</label>
+          <textarea id="address" name="address" rows="3" required minlength="10" maxlength="500" 
+                    placeholder="Your complete shipping address" 
+                    title="Address must be at least 10 characters"></textarea>
+        </div>
+
+        <p class="form-hint">
+          Your payment information is secure and encrypted. All transactions are processed through Razorpay.
+        </p>
+
+        <button type="submit" class="btn">Proceed to Payment</button>
+      </form>
+    </section>
+  </main>
+
+  <footer>
+    © 2025 SurrealBid. All rights reserved.
+  </footer>
+
+  <script src="js/payment.js"></script>
+</body>
+</html>

@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Payment Success | SurrealBid</title>
+
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Background -->
+  <div class="background"></div>
+
+  <!-- NAVIGATION BAR -->
+  <nav class="navbar">
+    <div class="nav-left">
+      <a href="index.html" class="logo">SurrealBid</a>
+      <a href="auctions.html" class="nav-link">Auctions</a>
+      <a href="index.html#about" class="nav-link">About</a>
+      <a href="mailto:hardiksingh850@gmail.com" class="nav-link">Contact</a>
+    </div>
+
+    <div class="nav-right">
+      <a href="submit-auction.html" class="nav-btn">Submit Artwork</a>
+    </div>
+  </nav>
+
+  <main class="content form-page">
+    <section class="form-card">
+      <div class="success-icon">✓</div>
+      <h1 class="title" style="color: #4ade80; margin-top: 20px;">Payment Successful!</h1>
+      <p class="subtitle">
+        Your purchase has been confirmed. You will receive a confirmation email shortly.
+      </p>
+
+      <div id="payment-details" class="checkout-summary" style="margin-top: 30px;">
+        <!-- Payment details will be populated by JS -->
+      </div>
+
+      <div style="margin-top: 30px;">
+        <a href="auctions.html" class="btn">Back to Auctions</a>
+        <a href="index.html" class="btn" style="margin-left: 12px; background: rgba(255, 255, 255, 0.1);">Go Home</a>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    © 2025 SurrealBid. All rights reserved.
+  </footer>
+
+  <script>
+    // Display payment details from URL
+    (function displayPaymentDetails() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const paymentId = urlParams.get('payment_id');
+      const orderId = urlParams.get('order_id');
+      const amount = urlParams.get('amount');
+      const title = urlParams.get('title');
+      const artist = urlParams.get('artist');
+
+      const detailsDiv = document.getElementById('payment-details');
+      if (!detailsDiv) return;
+
+      let html = '<div class="checkout-item">';
+      if (title && artist) {
+        html += `<h3>${title}</h3><p class="checkout-artist">by ${artist}</p>`;
+      }
+      if (amount) {
+        const amountNum = Number(amount);
+        html += `<p class="checkout-price">₹${amountNum.toLocaleString('en-IN')}</p>`;
+      }
+      if (paymentId) {
+        html += `<p style="font-size: 12px; opacity: 0.7; margin-top: 12px;">Payment ID: ${paymentId}</p>`;
+      }
+      if (orderId) {
+        html += `<p style="font-size: 12px; opacity: 0.7;">Order ID: ${orderId}</p>`;
+      }
+      html += '</div>';
+      detailsDiv.innerHTML = html;
+    })();
+  </script>
+</body>
+</html>

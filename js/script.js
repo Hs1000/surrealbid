@@ -1,6 +1,7 @@
 console.log("SurrealBid top-tier UI loaded.");
 
 const STORAGE_KEY = "surrealbid_auctions";
+const BIDS_STORAGE_KEY = "surrealbid_bids";
 const INR_PER_USD = 83; // rough static conversion; adjust as needed
 
 function loadStoredAuctions() {
@@ -21,6 +22,60 @@ function saveStoredAuctions(list) {
   } catch {
     // ignore
   }
+}
+
+// Bidding system functions
+function loadBids() {
+  try {
+    const raw = localStorage.getItem(BIDS_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveBids(bids) {
+  try {
+    localStorage.setItem(BIDS_STORAGE_KEY, JSON.stringify(bids));
+  } catch {
+    // ignore
+  }
+}
+
+function getHighestBid(auctionId) {
+  const bids = loadBids();
+  const auctionBids = bids[auctionId] || [];
+  if (auctionBids.length === 0) return null;
+  return auctionBids.reduce((highest, bid) => 
+    bid.amount > highest.amount ? bid : highest, auctionBids[0]
+  );
+}
+
+function addBid(auctionId, amount, bidderName, bidderEmail) {
+  const bids = loadBids();
+  if (!bids[auctionId]) bids[auctionId] = [];
+  
+  bids[auctionId].push({
+    id: `bid-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    amount: amount,
+    bidderName: bidderName || 'Anonymous',
+    bidderEmail: bidderEmail || '',
+    timestamp: Date.now()
+  });
+  
+  saveBids(bids);
+  
+  // Update auction's current bid
+  const auctions = loadStoredAuctions();
+  const auctionIndex = auctions.findIndex(a => String(a.id) === String(auctionId));
+  if (auctionIndex !== -1) {
+    auctions[auctionIndex].currentBidINR = amount;
+    saveStoredAuctions(auctions);
+  }
+  
+  return bids[auctionId];
 }
 
 // Handle submit-auction.html form
@@ -82,38 +137,22 @@ function saveStoredAuctions(list) {
   if (!grid) return;
 
   const stored = loadStoredAuctions();
+  const allAuctions = stored;
 
-  // Some default demo auctions so the page doesn't look empty
-  const demoNow = Date.now();
-  const demoAuctions = [
-    {
-      id: "demo-1",
-      title: "Echoes of a Dream",
-      artist: "Aria Nocturne",
-      imageClass: "image-1",
-      currentBidINR: 240000,
-      endTime: demoNow + 45 * 1000
-    },
-    {
-      id: "demo-2",
-      title: "Gravity for Sale",
-      artist: "Luka Meridian",
-      imageClass: "image-2",
-      currentBidINR: 95000,
-      endTime: demoNow + 90 * 1000
-    },
-    {
-      id: "demo-3",
-      title: "Rooms Between Clouds",
-      artist: "Mina Sol",
-      imageClass: "image-3",
-      currentBidINR: 410000,
-      endTime: demoNow + 150 * 1000
-    }
-  ];
+  // Show empty state if no auctions
+  if (allAuctions.length === 0) {
+    grid.innerHTML = `
+      <div style="grid-column: 1 / -1; text-align: center; padding: 60px 20px;">
+        <h2 style="font-size: 24px; margin-bottom: 12px; opacity: 0.9;">No auctions yet</h2>
+        <p style="opacity: 0.7; margin-bottom: 24px;">Be the first to submit an artwork!</p>
+        <a href="submit-auction.html" class="btn">Submit Artwork</a>
+      </div>
+    `;
+    return;
+  }
 
-  const allAuctions = [...demoAuctions, ...stored];
-
+  const nowForButtons = Date.now();
+  
   allAuctions.forEach((auction) => {
     const card = document.createElement("article");
     card.className = "auction-card";
@@ -145,14 +184,34 @@ function saveStoredAuctions(list) {
     metaEl.className = "auction-meta";
     const priceSpan = document.createElement("span");
     priceSpan.className = "auction-price";
-    const inr =
-      typeof auction.currentBidINR === "number"
-        ? auction.currentBidINR
-        : Number(auction.currentBid || 0) * 240000; // fallback for old ETH-style data
-    const usd = inr / INR_PER_USD;
-    priceSpan.textContent = `₹${inr.toLocaleString("en-IN")} (≈ $${usd.toFixed(0)})`;
+    priceSpan.dataset.auctionId = String(auction.id);
+    priceSpan.dataset.priceElement = "true";
+    
+    // Get highest bid or use auction's starting bid
+    const highestBid = getHighestBid(auction.id);
+    let currentBidAmount = highestBid ? highestBid.amount : 
+      (typeof auction.currentBidINR === "number" ? auction.currentBidINR : 
+       Number(auction.currentBid || 0) * 240000);
+    
+    const usd = currentBidAmount / INR_PER_USD;
+    priceSpan.textContent = `₹${currentBidAmount.toLocaleString("en-IN")} (≈ $${usd.toFixed(0)})`;
     metaEl.textContent = "Current bid: ";
     metaEl.appendChild(priceSpan);
+    
+    // Show bid count if there are bids
+    if (highestBid) {
+      const bids = loadBids();
+      const bidCount = (bids[auction.id] || []).length;
+      if (bidCount > 0) {
+        const bidCountEl = document.createElement("p");
+        bidCountEl.className = "auction-bid-count";
+        bidCountEl.textContent = `${bidCount} bid${bidCount !== 1 ? 's' : ''}`;
+        bidCountEl.style.fontSize = "12px";
+        bidCountEl.style.opacity = "0.7";
+        bidCountEl.style.marginTop = "4px";
+        metaEl.appendChild(bidCountEl);
+      }
+    }
 
     const timerEl = document.createElement("p");
     timerEl.className = "auction-timer";
@@ -161,8 +220,25 @@ function saveStoredAuctions(list) {
 
     const btn = document.createElement("button");
     btn.className = "auction-btn";
-    btn.disabled = true;
-    btn.textContent = "Real-time bidding coming soon";
+    const inrForBtn =
+      typeof auction.currentBidINR === "number"
+        ? auction.currentBidINR
+        : Number(auction.currentBid || 0) * 240000;
+    
+    // Check if auction has ended
+    const endTime = auction.endTime || 0;
+    const hasEnded = endTime > 0 && nowForButtons > endTime;
+    
+    if (hasEnded) {
+      btn.disabled = true;
+      btn.textContent = "Auction ended";
+      btn.style.opacity = "0.5";
+    } else {
+      btn.textContent = "Place Bid";
+      btn.onclick = () => {
+        openBidModal(auction.id, auction.title, auction.artist, currentBidAmount);
+      };
+    }
 
     body.appendChild(titleEl);
     body.appendChild(artistEl);
@@ -175,8 +251,6 @@ function saveStoredAuctions(list) {
 
     grid.appendChild(card);
   });
-
-  if (!allAuctions.length) return;
 
   function formatRemaining(ms) {
     if (ms <= 0) return "Auction ended";
@@ -205,4 +279,156 @@ function saveStoredAuctions(list) {
 
   tick();
   setInterval(tick, 1000);
+  
+  // Poll for bid updates every 3 seconds
+  setInterval(() => {
+    updateBidPrices();
+  }, 3000);
+  
+  // Initial price update
+  updateBidPrices();
 })();
+
+// Bidding modal and functions
+function openBidModal(auctionId, title, artist, currentBid) {
+  // Remove existing modal if any
+  const existingModal = document.getElementById('bid-modal');
+  if (existingModal) existingModal.remove();
+  
+  const modal = document.createElement('div');
+  modal.id = 'bid-modal';
+  modal.className = 'bid-modal-overlay';
+  modal.innerHTML = `
+    <div class="bid-modal">
+      <div class="bid-modal-header">
+        <h2>Place Your Bid</h2>
+        <button class="bid-modal-close" onclick="closeBidModal()">&times;</button>
+      </div>
+      <div class="bid-modal-body">
+        <div class="bid-artwork-info">
+          <h3>${title}</h3>
+          <p>by ${artist}</p>
+          <p class="bid-current-price">Current bid: ₹${currentBid.toLocaleString('en-IN')}</p>
+        </div>
+        <form id="bid-form" class="bid-form">
+          <div class="form-row">
+            <label for="bidder-name">Your Name</label>
+            <input id="bidder-name" type="text" required minlength="2" maxlength="100" 
+                   placeholder="Enter your name" />
+          </div>
+          <div class="form-row">
+            <label for="bidder-email">Email (optional)</label>
+            <input id="bidder-email" type="email" maxlength="254" 
+                   placeholder="your@email.com" />
+          </div>
+          <div class="form-row">
+            <label for="bid-amount">Your Bid Amount (INR)</label>
+            <input id="bid-amount" type="number" required min="${currentBid + 1}" 
+                   step="1" placeholder="Enter amount" />
+            <p class="form-hint">Minimum bid: ₹${(currentBid + 1).toLocaleString('en-IN')}</p>
+          </div>
+          <div class="bid-modal-actions">
+            <button type="button" class="btn btn-secondary" onclick="closeBidModal()">Cancel</button>
+            <button type="submit" class="btn">Place Bid</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  `;
+  
+  document.body.appendChild(modal);
+  
+  // Handle form submission
+  const form = document.getElementById('bid-form');
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const bidAmount = Math.floor(Number(document.getElementById('bid-amount').value));
+    const bidderName = document.getElementById('bidder-name').value.trim();
+    const bidderEmail = document.getElementById('bidder-email').value.trim();
+    
+    if (bidAmount <= currentBid) {
+      alert(`Your bid must be higher than the current bid of ₹${currentBid.toLocaleString('en-IN')}`);
+      return;
+    }
+    
+    if (bidAmount < 1) {
+      alert('Please enter a valid bid amount');
+      return;
+    }
+    
+    // Add the bid
+    addBid(auctionId, bidAmount, bidderName, bidderEmail);
+    
+    // Show success message
+    alert(`Bid placed successfully! Your bid: ₹${bidAmount.toLocaleString('en-IN')}`);
+    
+    // Update the price display immediately
+    updateBidPrice(auctionId);
+    
+    // Close modal
+    closeBidModal();
+  });
+  
+  // Close on overlay click
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) {
+      closeBidModal();
+    }
+  });
+}
+
+function closeBidModal() {
+  const modal = document.getElementById('bid-modal');
+  if (modal) modal.remove();
+}
+
+function updateBidPrice(auctionId) {
+  const highestBid = getHighestBid(auctionId);
+  if (!highestBid) return;
+  
+  const priceSpan = document.querySelector(`[data-price-element="true"][data-auction-id="${auctionId}"]`);
+  if (priceSpan) {
+    const usd = highestBid.amount / INR_PER_USD;
+    priceSpan.textContent = `₹${highestBid.amount.toLocaleString('en-IN')} (≈ $${usd.toFixed(0)})`;
+    
+    // Add animation to show price update
+    priceSpan.style.transition = 'all 0.3s ease';
+    priceSpan.style.color = '#4ade80';
+    setTimeout(() => {
+      priceSpan.style.color = '';
+    }, 1000);
+  }
+  
+  // Update bid count
+  const bids = loadBids();
+  const bidCount = (bids[auctionId] || []).length;
+  const metaEl = priceSpan?.parentElement;
+  if (metaEl) {
+    let bidCountEl = metaEl.querySelector('.auction-bid-count');
+    if (bidCountEl) {
+      bidCountEl.textContent = `${bidCount} bid${bidCount !== 1 ? 's' : ''}`;
+    } else if (bidCount > 0) {
+      bidCountEl = document.createElement("p");
+      bidCountEl.className = "auction-bid-count";
+      bidCountEl.textContent = `${bidCount} bid${bidCount !== 1 ? 's' : ''}`;
+      bidCountEl.style.fontSize = "12px";
+      bidCountEl.style.opacity = "0.7";
+      bidCountEl.style.marginTop = "4px";
+      metaEl.appendChild(bidCountEl);
+    }
+  }
+}
+
+function updateBidPrices() {
+  const cards = document.querySelectorAll('.auction-card');
+  cards.forEach((card) => {
+    const auctionId = card.dataset.auctionId;
+    if (auctionId) {
+      updateBidPrice(auctionId);
+    }
+  });
+}
+
+// Make functions globally accessible
+window.openBidModal = openBidModal;
+window.closeBidModal = closeBidModal;
