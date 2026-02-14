@@ -6,6 +6,13 @@ const EXCHANGE_RATE_CACHE_KEY = "surrealbid_exchange_rate";
 const EXCHANGE_RATE_CACHE_DURATION = 60 * 60 * 1000; // 1 hour in milliseconds
 const DEFAULT_INR_PER_USD = 83; // Fallback rate if API fails
 
+// Shared storage configuration
+// Using JSONBin.io for shared auction storage
+const SHARED_STORAGE_API = 'https://api.jsonbin.io/v3/b';
+const SHARED_STORAGE_BIN_ID = '6990557843b1c97be97e53f9';
+const SHARED_STORAGE_API_KEY = '$2a$10$dwfI5DnmcSV.xrlrteOKBOW0qrUqwdylnR4Zz.AsmSbD9RAJM7yG6';
+const USE_SHARED_STORAGE = true; // Enabled - auctions are now shared across all users!
+
 // Clear cached exchange rate (useful for debugging)
 function clearExchangeRateCache() {
   try {
@@ -139,7 +146,7 @@ getExchangeRate().then(rate => {
     console.log('Exchange rate loaded:', rate, 'INR per USD');
     // Update displayed prices if on auctions page
     if (document.querySelector('.auctions-grid')) {
-      updateAllPrices();
+      updateAllPrices().catch(console.error);
     }
   } else {
     console.warn('Invalid exchange rate, using default:', rate);
@@ -153,7 +160,8 @@ getExchangeRate().then(rate => {
 });
 
 // Function to update all price displays with current exchange rate
-function updateAllPrices() {
+async function updateAllPrices() {
+  const auctions = await loadStoredAuctions();
   document.querySelectorAll('[data-price-element="true"]').forEach(priceSpan => {
     const auctionId = priceSpan.dataset.auctionId;
     const highestBid = getHighestBid(auctionId);
@@ -162,7 +170,6 @@ function updateAllPrices() {
       priceSpan.textContent = `₹${highestBid.amount.toLocaleString('en-IN')} (≈ $${usd.toFixed(2)})`;
     } else {
       // Get auction data to show starting bid
-      const auctions = loadStoredAuctions();
       const auction = auctions.find(a => String(a.id) === auctionId);
       if (auction) {
         const bidAmount = auction.currentBidINR || 0;
@@ -173,7 +180,42 @@ function updateAllPrices() {
   });
 }
 
-function loadStoredAuctions() {
+// Load auctions from shared storage or localStorage
+async function loadStoredAuctions() {
+  // Try shared storage first if enabled
+  if (USE_SHARED_STORAGE && SHARED_STORAGE_BIN_ID && SHARED_STORAGE_BIN_ID !== '675a1234567890abcdef1234') {
+    try {
+      const response = await fetch(`${SHARED_STORAGE_API}/${SHARED_STORAGE_BIN_ID}/latest`, {
+        headers: {
+          'X-Master-Key': SHARED_STORAGE_API_KEY,
+          'X-Bin-Meta': 'false'
+        }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        // Handle both formats: { auctions: [...] } or direct array
+        let auctions = [];
+        if (data.record) {
+          auctions = Array.isArray(data.record) ? data.record : (data.record.auctions || []);
+        } else if (Array.isArray(data)) {
+          auctions = data;
+        }
+        
+        if (Array.isArray(auctions)) {
+          // Also cache locally for offline access
+          try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(auctions));
+          } catch (e) {}
+          // Return even if empty - this means bin exists and is working
+          return auctions;
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to load from shared storage, using local:', error);
+    }
+  }
+  
+  // Fallback to localStorage
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
@@ -185,11 +227,30 @@ function loadStoredAuctions() {
   }
 }
 
-function saveStoredAuctions(list) {
+// Save auctions to shared storage and localStorage
+async function saveStoredAuctions(list) {
+  // Always save to localStorage first (for offline access)
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
   } catch {
     // ignore
+  }
+  
+  // Try to save to shared storage if enabled
+  if (USE_SHARED_STORAGE && SHARED_STORAGE_BIN_ID) {
+    try {
+      await fetch(`${SHARED_STORAGE_API}/${SHARED_STORAGE_BIN_ID}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Master-Key': SHARED_STORAGE_API_KEY
+        },
+        body: JSON.stringify({ auctions: list, updatedAt: Date.now() })
+      });
+    } catch (error) {
+      console.warn('Failed to save to shared storage:', error);
+      // Continue anyway - at least localStorage is saved
+    }
   }
 }
 
@@ -222,7 +283,7 @@ function getHighestBid(auctionId) {
   );
 }
 
-function addBid(auctionId, amount, bidderName, bidderEmail) {
+async function addBid(auctionId, amount, bidderName, bidderEmail) {
   const bids = loadBids();
   if (!bids[auctionId]) bids[auctionId] = [];
   
@@ -237,11 +298,11 @@ function addBid(auctionId, amount, bidderName, bidderEmail) {
   saveBids(bids);
   
   // Update auction's current bid
-  const auctions = loadStoredAuctions();
+  const auctions = await loadStoredAuctions();
   const auctionIndex = auctions.findIndex(a => String(a.id) === String(auctionId));
   if (auctionIndex !== -1) {
     auctions[auctionIndex].currentBidINR = amount;
-    saveStoredAuctions(auctions);
+    await saveStoredAuctions(auctions);
   }
   
   return bids[auctionId];
@@ -273,7 +334,7 @@ function addBid(auctionId, amount, bidderName, bidderEmail) {
     const file = imageFileInput?.files && imageFileInput.files[0];
 
     // Helper to finalize save + redirect
-    function finishSave(extra) {
+    async function finishSave(extra) {
       auctions.push({
         id: `user-${now}`,
         title,
@@ -283,7 +344,7 @@ function addBid(auctionId, amount, bidderName, bidderEmail) {
         endTime,
         ...extra
       });
-      saveStoredAuctions(auctions);
+      await saveStoredAuctions(auctions);
       window.location.href = "auctions.html";
     }
 
@@ -305,8 +366,18 @@ function addBid(auctionId, amount, bidderName, bidderEmail) {
   const grid = document.querySelector(".auctions-grid");
   if (!grid) return;
 
-  const stored = loadStoredAuctions();
-  const allAuctions = stored;
+  // Load auctions asynchronously
+  loadStoredAuctions().then(stored => {
+    renderAuctions(stored);
+  });
+})();
+
+function renderAuctions(allAuctions) {
+  const grid = document.querySelector(".auctions-grid");
+  if (!grid) return;
+  
+  // Clear existing content
+  grid.innerHTML = '';
 
   // Show empty state if no auctions
   if (allAuctions.length === 0) {
@@ -454,9 +525,23 @@ function addBid(auctionId, amount, bidderName, bidderEmail) {
     updateBidPrices();
   }, 3000);
   
+  // Poll for new auctions every 10 seconds (if using shared storage)
+  if (USE_SHARED_STORAGE) {
+    setInterval(async () => {
+      const updatedAuctions = await loadStoredAuctions();
+      // Check if new auctions were added
+      const currentIds = new Set(allAuctions.map(a => a.id));
+      const newAuctions = updatedAuctions.filter(a => !currentIds.has(a.id));
+      if (newAuctions.length > 0) {
+        // Reload page to show new auctions
+        location.reload();
+      }
+    }, 10000);
+  }
+  
   // Initial price update
   updateBidPrices();
-})();
+}
 
 // Bidding modal and functions
 function openBidModal(auctionId, title, artist, currentBid) {
@@ -526,16 +611,19 @@ function openBidModal(auctionId, title, artist, currentBid) {
     }
     
     // Add the bid
-    addBid(auctionId, bidAmount, bidderName, bidderEmail);
-    
-    // Show success message
-    alert(`Bid placed successfully! Your bid: ₹${bidAmount.toLocaleString('en-IN')}`);
-    
-    // Update the price display immediately
-    updateBidPrice(auctionId);
-    
-    // Close modal
-    closeBidModal();
+    addBid(auctionId, bidAmount, bidderName, bidderEmail).then(() => {
+      // Show success message
+      alert(`Bid placed successfully! Your bid: ₹${bidAmount.toLocaleString('en-IN')}`);
+      
+      // Update the price display immediately
+      updateBidPrice(auctionId);
+      
+      // Close modal
+      closeBidModal();
+    }).catch(error => {
+      console.error('Error placing bid:', error);
+      alert('Error placing bid. Please try again.');
+    });
   });
   
   // Close on overlay click
