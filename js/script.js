@@ -182,7 +182,7 @@ async function updateAllPrices() {
 
 // Load auctions from shared storage or localStorage
 async function loadStoredAuctions() {
-  // Always try localStorage first (faster, more reliable)
+  // Get local auctions first (might have unsynced items)
   let localAuctions = [];
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -196,7 +196,7 @@ async function loadStoredAuctions() {
     console.warn('Failed to parse local storage:', e);
   }
   
-  // Try shared storage if enabled (merge with local, prefer local if conflict)
+  // Try shared storage (source of truth for shared auctions)
   if (USE_SHARED_STORAGE && SHARED_STORAGE_BIN_ID) {
     try {
       // Add timeout to prevent hanging
@@ -223,16 +223,19 @@ async function loadStoredAuctions() {
           remoteAuctions = data;
         }
         
-        if (Array.isArray(remoteAuctions) && remoteAuctions.length > 0) {
-          // Merge: combine local and remote, prefer newer items
-          const localIds = new Set(localAuctions.map(a => a.id));
-          const newFromRemote = remoteAuctions.filter(a => !localIds.has(a.id));
-          const merged = [...localAuctions, ...newFromRemote];
+        if (Array.isArray(remoteAuctions)) {
+          // Merge: remote is source of truth, but keep any local-only items (unsynced)
+          const remoteIds = new Set(remoteAuctions.map(a => a.id));
+          const localOnly = localAuctions.filter(a => !remoteIds.has(a.id));
+          const merged = [...remoteAuctions, ...localOnly];
           
-          // Update localStorage with merged data
+          // Cache merged data locally
           try {
             localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
-          } catch (e) {}
+            console.log('Loaded', merged.length, 'auctions (', remoteAuctions.length, 'remote +', localOnly.length, 'local)');
+          } catch (e) {
+            console.warn('Failed to cache to localStorage:', e);
+          }
           return merged;
         }
       }
@@ -241,7 +244,10 @@ async function loadStoredAuctions() {
     }
   }
   
-  // Return local auctions (even if empty)
+  // Return local auctions (fallback)
+  if (localAuctions.length > 0) {
+    console.log('Loaded', localAuctions.length, 'auctions from localStorage (fallback)');
+  }
   return localAuctions;
 }
 
@@ -412,30 +418,59 @@ function handleAuctionForm() {
       const endTime = now + durationMinutes * 60 * 1000;
 
       console.log('Loading auctions...');
-      // Load auctions with timeout protection
+      // For form submission, load from localStorage first (fast, reliable)
+      // Then merge with remote data if available
       let auctions = [];
       try {
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Load timeout')), 2000)
-        );
-        auctions = await Promise.race([loadStoredAuctions(), timeoutPromise]);
-        console.log('Loaded auctions:', auctions.length);
-      } catch (error) {
-        console.warn('Failed to load auctions, using empty array:', error.message);
-        // Try to get from localStorage directly as fallback
-        try {
-          const raw = localStorage.getItem(STORAGE_KEY);
-          if (raw) {
-            const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed)) {
-              auctions = parsed;
-              console.log('Loaded from localStorage fallback:', auctions.length);
-            }
+        // Get from localStorage first
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            auctions = parsed;
+            console.log('Loaded', auctions.length, 'auctions from localStorage');
           }
-        } catch (e) {
-          console.error('Failed to load from localStorage:', e);
         }
+        
+        // Try to get latest from shared storage (non-blocking, merge if available)
+        if (USE_SHARED_STORAGE && SHARED_STORAGE_BIN_ID) {
+          try {
+            const timeoutPromise = new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Load timeout')), 1500)
+            );
+            const fetchPromise = fetch(`${SHARED_STORAGE_API}/${SHARED_STORAGE_BIN_ID}/latest`, {
+              headers: {
+                'X-Master-Key': SHARED_STORAGE_API_KEY,
+                'X-Bin-Meta': 'false'
+              }
+            });
+            const response = await Promise.race([fetchPromise, timeoutPromise]);
+            if (response.ok) {
+              const data = await response.json();
+              let remoteAuctions = [];
+              if (data.record) {
+                remoteAuctions = Array.isArray(data.record) ? data.record : (data.record.auctions || []);
+              } else if (Array.isArray(data)) {
+                remoteAuctions = data;
+              }
+              if (Array.isArray(remoteAuctions) && remoteAuctions.length > 0) {
+                // Merge: use remote as base, add any local-only items
+                const remoteIds = new Set(remoteAuctions.map(a => a.id));
+                const localOnly = auctions.filter(a => !remoteIds.has(a.id));
+                auctions = [...remoteAuctions, ...localOnly];
+                console.log('Merged with remote:', auctions.length, 'total auctions');
+              }
+            }
+          } catch (e) {
+            console.warn('Could not fetch remote auctions (continuing with local):', e.message);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load auctions:', error);
+        auctions = [];
       }
+      
+      console.log('Final auctions array:', auctions.length);
 
       const file = imageFileInput?.files && imageFileInput.files[0];
 
@@ -458,17 +493,19 @@ function handleAuctionForm() {
         // Save to localStorage immediately (synchronous)
         try {
           localStorage.setItem(STORAGE_KEY, JSON.stringify(auctions));
-          console.log('Saved auction to localStorage immediately');
+          console.log('✓ Saved', auctions.length, 'auctions to localStorage');
           
           // Verify it was saved
           const verify = localStorage.getItem(STORAGE_KEY);
           if (verify) {
             const parsed = JSON.parse(verify);
-            console.log('Verification: Saved', parsed.length, 'auctions to localStorage');
-            console.log('New auction ID:', newAuction.id);
+            console.log('✓ Verification: localStorage has', parsed.length, 'auctions');
+            console.log('✓ New auction ID:', newAuction.id);
+          } else {
+            throw new Error('Verification failed - localStorage save did not persist');
           }
         } catch (error) {
-          console.error('Failed to save to localStorage:', error);
+          console.error('✗ Failed to save to localStorage:', error);
           alert('Error saving auction. Please try again.');
           if (submitButton) {
             submitButton.disabled = false;
@@ -477,34 +514,44 @@ function handleAuctionForm() {
           return;
         }
         
-        // Redirect immediately - don't wait for API
-        console.log('Redirecting to auctions page...');
-        window.location.href = "auctions.html";
-        
-        // Sync to shared storage in background (non-blocking, runs after redirect)
-        // Use setTimeout to ensure redirect happens first
-        setTimeout(() => {
-          // Only sync the JSONBin.io part, not localStorage (already saved)
-          if (USE_SHARED_STORAGE && SHARED_STORAGE_BIN_ID) {
-            const payload = { auctions: auctions, updatedAt: Date.now() };
-            fetch(`${SHARED_STORAGE_API}/${SHARED_STORAGE_BIN_ID}`, {
-              method: 'PUT',
-              headers: {
-                'Content-Type': 'application/json',
-                'X-Master-Key': SHARED_STORAGE_API_KEY
-              },
-              body: JSON.stringify(payload)
-            }).then(response => {
-              if (response.ok) {
-                console.log('Successfully synced to shared storage');
-              } else {
-                console.warn('Failed to sync to shared storage:', response.status);
-              }
-            }).catch(err => {
-              console.warn('Background sync to shared storage failed (this is okay):', err);
-            });
-          }
-        }, 100);
+        // Sync to shared storage BEFORE redirect (but don't wait if it's slow)
+        if (USE_SHARED_STORAGE && SHARED_STORAGE_BIN_ID) {
+          const payload = { auctions: auctions, updatedAt: Date.now() };
+          console.log('Syncing', auctions.length, 'auctions to shared storage...');
+          
+          // Start the sync but don't wait for it
+          const syncPromise = fetch(`${SHARED_STORAGE_API}/${SHARED_STORAGE_BIN_ID}`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Master-Key': SHARED_STORAGE_API_KEY
+            },
+            body: JSON.stringify(payload)
+          }).then(response => {
+            if (response.ok) {
+              console.log('✓ Successfully synced', auctions.length, 'auctions to shared storage');
+            } else {
+              return response.text().then(text => {
+                console.warn('✗ Failed to sync to shared storage:', response.status, text);
+              });
+            }
+          }).catch(err => {
+            console.warn('✗ Background sync to shared storage failed:', err.message);
+          });
+          
+          // Wait max 2 seconds for sync, then redirect anyway
+          Promise.race([
+            syncPromise,
+            new Promise(resolve => setTimeout(resolve, 2000))
+          ]).then(() => {
+            console.log('Redirecting to auctions page...');
+            window.location.href = "auctions.html";
+          });
+        } else {
+          // No shared storage, redirect immediately
+          console.log('Redirecting to auctions page...');
+          window.location.href = "auctions.html";
+        }
       }
 
       if (file) {
@@ -551,15 +598,29 @@ function handleAuctionForm() {
     // Poll for new auctions every 10 seconds (if using shared storage)
     if (USE_SHARED_STORAGE) {
       let allAuctions = stored;
+      console.log('Polling for new auctions every 10 seconds...');
       setInterval(async () => {
-        const updatedAuctions = await loadStoredAuctions();
-        // Check if new auctions were added
-        const currentIds = new Set(allAuctions.map(a => a.id));
-        const newAuctions = updatedAuctions.filter(a => !currentIds.has(a.id));
-        if (newAuctions.length > 0) {
-          // Update local copy and reload page to show new auctions
-          allAuctions = updatedAuctions;
-          location.reload();
+        try {
+          const updatedAuctions = await loadStoredAuctions();
+          // Check if auctions changed (new ones added or count changed)
+          const currentIds = new Set(allAuctions.map(a => a.id));
+          const updatedIds = new Set(updatedAuctions.map(a => a.id));
+          
+          // Check if there are new auctions
+          const newAuctions = updatedAuctions.filter(a => !currentIds.has(a.id));
+          
+          // Also check if count changed (someone might have deleted)
+          if (newAuctions.length > 0 || updatedAuctions.length !== allAuctions.length) {
+            console.log('New auctions detected! Reloading page...', {
+              current: allAuctions.length,
+              updated: updatedAuctions.length,
+              new: newAuctions.length
+            });
+            allAuctions = updatedAuctions;
+            location.reload();
+          }
+        } catch (error) {
+          console.warn('Error polling for new auctions:', error);
         }
       }, 10000);
     }
