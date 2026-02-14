@@ -7,14 +7,14 @@
 
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/style.css">
+
+
 </head>
 
 <body>
 
-  <!-- Background -->
   <div class="background"></div>
 
-  <!-- NAVIGATION BAR -->
   <nav class="navbar">
     <div class="nav-left">
       <a href="index.html" class="logo">SurrealBid</a>
@@ -28,29 +28,33 @@
     </div>
   </nav>
 
-  <!-- LIVE AUCTIONS CONTENT -->
   <main class="content auctions-content">
     <header class="auctions-header">
       <h1 class="title">Live surreal auctions</h1>
       <p class="subtitle">
-        Real‑time bidding on one‑of‑a‑kind surreal works. Timers update live in your browser.
+        Real-time bidding on one-of-a-kind surreal works.
       </p>
     </header>
 
-    <section class="auctions-grid" aria-label="Live auctions">
-      <!-- Auction cards will be rendered here by script.js based on stored data -->
+    <!-- ACTIVE AUCTIONS -->
+    <section>
+      <h2 class="section-heading">🟢 In Progress</h2>
+      <div class="auctions-grid" id="active-auctions"></div>
     </section>
-    
-    <!-- Bidding modal will be inserted here by JavaScript -->
+
+    <!-- ENDED AUCTIONS -->
+    <section style="margin-top: 60px;">
+      <h2 class="section-heading">🔴 Ended Auctions</h2>
+      <div class="auctions-grid" id="ended-auctions"></div>
+    </section>
   </main>
 
-  <!-- FOOTER -->
   <footer>
-    © 2025 SurrealBid. All rights reserved.
+    © 2026 SurrealBid. All rights reserved.
   </footer>
 
   <script src="js/script.js"></script>
 </body>
-
 </html>
+
 
