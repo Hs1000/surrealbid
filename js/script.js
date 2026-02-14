@@ -9,7 +9,7 @@ const DEFAULT_INR_PER_USD = 83; // Fallback rate if API fails
 // Shared storage configuration
 // Using JSONBin.io for shared auction storage
 const SHARED_STORAGE_API = 'https://api.jsonbin.io/v3/b';
-const SHARED_STORAGE_BIN_ID = '6990557843b1c97be97e53f9';
+const SHARED_STORAGE_BIN_ID = '699063ae43b1c97be97e71d0';
 const SHARED_STORAGE_API_KEY = '$2a$10$dwfI5DnmcSV.xrlrteOKBOW0qrUqwdylnR4Zz.AsmSbD9RAJM7yG6';
 const USE_SHARED_STORAGE = true; // Enabled - auctions are now shared across all users!
 
@@ -199,9 +199,15 @@ async function loadStoredAuctions() {
   // Try shared storage (source of truth for shared auctions)
   if (USE_SHARED_STORAGE && SHARED_STORAGE_BIN_ID) {
     try {
-      // Add timeout to prevent hanging
+      console.log('Attempting to load from shared storage...');
+      const startTime = Date.now();
+      
+      // Add timeout to prevent hanging (increased to 15 seconds)
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Load timeout')), 3000)
+        setTimeout(() => {
+          const elapsed = Date.now() - startTime;
+          reject(new Error(`Load timeout after ${elapsed}ms`));
+        }, 15000)
       );
       
       const fetchPromise = fetch(`${SHARED_STORAGE_API}/${SHARED_STORAGE_BIN_ID}/latest`, {
@@ -209,12 +215,19 @@ async function loadStoredAuctions() {
           'X-Master-Key': SHARED_STORAGE_API_KEY,
           'X-Bin-Meta': 'false'
         }
+      }).catch(fetchError => {
+        console.error('Fetch error details:', fetchError);
+        throw new Error(`Network error: ${fetchError.message}`);
       });
       
       const response = await Promise.race([fetchPromise, timeoutPromise]);
+      const elapsed = Date.now() - startTime;
+      console.log(`API response received in ${elapsed}ms, status: ${response.status}`);
       
       if (response.ok) {
         const data = await response.json();
+        console.log('API response data:', data);
+        
         // Handle both formats: { auctions: [...] } or direct array
         let remoteAuctions = [];
         if (data.record) {
@@ -232,15 +245,22 @@ async function loadStoredAuctions() {
           // Cache merged data locally
           try {
             localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
-            console.log('Loaded', merged.length, 'auctions (', remoteAuctions.length, 'remote +', localOnly.length, 'local)');
+            console.log('✓ Loaded', merged.length, 'auctions (', remoteAuctions.length, 'remote +', localOnly.length, 'local)');
           } catch (e) {
             console.warn('Failed to cache to localStorage:', e);
           }
           return merged;
+        } else {
+          console.warn('API returned invalid data format:', data);
         }
+      } else {
+        const errorText = await response.text().catch(() => 'Unable to read error');
+        console.error(`API returned error status ${response.status}:`, errorText);
+        throw new Error(`API error ${response.status}: ${errorText.substring(0, 100)}`);
       }
     } catch (error) {
       console.warn('Failed to load from shared storage, using local only:', error.message);
+      console.warn('Error details:', error);
     }
   }
   
@@ -267,9 +287,9 @@ async function saveStoredAuctions(list) {
     try {
       const payload = { auctions: list, updatedAt: Date.now() };
       
-      // Create a timeout promise (5 seconds)
+      // Create a timeout promise (10 seconds)
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('API request timeout')), 5000)
+        setTimeout(() => reject(new Error('API request timeout')), 10000)
       );
       
       // Race between fetch and timeout
@@ -436,7 +456,7 @@ function handleAuctionForm() {
         if (USE_SHARED_STORAGE && SHARED_STORAGE_BIN_ID) {
           try {
             const timeoutPromise = new Promise((_, reject) => 
-              setTimeout(() => reject(new Error('Load timeout')), 1500)
+              setTimeout(() => reject(new Error('Load timeout')), 5000)
             );
             const fetchPromise = fetch(`${SHARED_STORAGE_API}/${SHARED_STORAGE_BIN_ID}/latest`, {
               headers: {
