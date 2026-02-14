@@ -1220,33 +1220,41 @@ async function loadStoredAuctions() {
 }
 
 
-function saveStoredAuctions(list) {
-  // 1️⃣ Always save FULL version locally (with imageDataUrl)
+async function saveStoredAuctions(list) {
+  // Save locally always
   localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
 
   if (!USE_SHARED_STORAGE) return;
 
-  // 2️⃣ Send CLEANED version to remote (without base64)
-  const cleaned = list.map(a => {
-    const copy = { ...a };
-  
-    // Only remove base64 if it is too large
-    if (copy.imageDataUrl && copy.imageDataUrl.length > 500000) {
-      delete copy.imageDataUrl;
-    }
-  
-    return copy;
-  });
-  
+  try {
+    const cleaned = list.map(a => {
+      const copy = { ...a };
 
-  fetch(`${SHARED_STORAGE_API}/${SHARED_STORAGE_BIN_ID}`, {
-    method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Master-Key": SHARED_STORAGE_API_KEY
-    },
-    body: JSON.stringify({ auctions: cleaned })
-  }).catch(() => {});
+      // Remove large base64 only if huge
+      if (copy.imageDataUrl && copy.imageDataUrl.length > 500000) {
+        delete copy.imageDataUrl;
+      }
+
+      return copy;
+    });
+
+    const response = await fetch(
+      `${SHARED_STORAGE_API}/${SHARED_STORAGE_BIN_ID}`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Master-Key": SHARED_STORAGE_API_KEY
+        },
+        body: JSON.stringify(cleaned) // 🔥 FIXED BODY
+      }
+    );
+
+    const result = await response.json();
+    console.log("JSONBin saved:", result);
+  } catch (err) {
+    console.error("JSONBin save failed:", err);
+  }
 }
 
 
