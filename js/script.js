@@ -239,7 +239,7 @@ async function saveStoredAuctions(list) {
   // Try to save to shared storage if enabled
   if (USE_SHARED_STORAGE && SHARED_STORAGE_BIN_ID) {
     try {
-      await fetch(`${SHARED_STORAGE_API}/${SHARED_STORAGE_BIN_ID}`, {
+      const response = await fetch(`${SHARED_STORAGE_API}/${SHARED_STORAGE_BIN_ID}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -247,9 +247,18 @@ async function saveStoredAuctions(list) {
         },
         body: JSON.stringify({ auctions: list, updatedAt: Date.now() })
       });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Failed to save to shared storage. Status:', response.status, 'Error:', errorText);
+        throw new Error(`API returned ${response.status}: ${errorText}`);
+      } else {
+        console.log('Successfully saved to shared storage');
+      }
     } catch (error) {
       console.warn('Failed to save to shared storage:', error);
       // Continue anyway - at least localStorage is saved
+      // Don't throw - we want to continue even if API fails
     }
   }
 }
@@ -313,7 +322,7 @@ async function addBid(auctionId, amount, bidderName, bidderEmail) {
   const form = document.getElementById("auction-form");
   if (!form) return;
 
-  form.addEventListener("submit", (event) => {
+  form.addEventListener("submit", async (event) => {
     event.preventDefault();
 
     const title = /** @type {HTMLInputElement} */ (document.getElementById("title")).value.trim();
@@ -329,34 +338,43 @@ async function addBid(auctionId, amount, bidderName, bidderEmail) {
     const now = Date.now();
     const endTime = now + durationMinutes * 60 * 1000;
 
-    const auctions = loadStoredAuctions();
+    // Load auctions asynchronously
+    const auctions = await loadStoredAuctions();
 
     const file = imageFileInput?.files && imageFileInput.files[0];
 
     // Helper to finalize save + redirect
     async function finishSave(extra) {
-      auctions.push({
-        id: `user-${now}`,
-        title,
-        artist,
-        imageUrl,
-        currentBidINR: startBidINR,
-        endTime,
-        ...extra
-      });
-      await saveStoredAuctions(auctions);
-      window.location.href = "auctions.html";
+      try {
+        auctions.push({
+          id: `user-${now}`,
+          title,
+          artist,
+          imageUrl,
+          currentBidINR: startBidINR,
+          endTime,
+          ...extra
+        });
+        await saveStoredAuctions(auctions);
+        window.location.href = "auctions.html";
+      } catch (error) {
+        console.error('Error saving auction:', error);
+        alert('Error saving auction. Please try again.');
+      }
     }
 
     if (file) {
       const reader = new FileReader();
-      reader.onload = () => {
+      reader.onload = async () => {
         const dataUrl = typeof reader.result === "string" ? reader.result : "";
-        finishSave({ imageDataUrl: dataUrl });
+        await finishSave({ imageDataUrl: dataUrl });
+      };
+      reader.onerror = () => {
+        alert('Error reading image file. Please try again.');
       };
       reader.readAsDataURL(file);
     } else {
-      finishSave({});
+      await finishSave({});
     }
   });
 })();
