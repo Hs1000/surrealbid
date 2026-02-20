@@ -1,17 +1,15 @@
 console.log("SurrealBid top-tier UI loaded.");
 
-const STORAGE_KEY = "surrealbid_auctions";
-const BIDS_STORAGE_KEY = "surrealbid_bids";
 const EXCHANGE_RATE_CACHE_KEY = "surrealbid_exchange_rate";
 const EXCHANGE_RATE_CACHE_DURATION = 60 * 60 * 1000; // 1 hour in milliseconds
 const DEFAULT_INR_PER_USD = 83; // Fallback rate if API fails
 
-// Shared storage configuration
-// Using JSONBin.io for shared auction storage
+// Shared storage configuration - JSONBin.io is now the ONLY storage mechanism
 const SHARED_STORAGE_API = 'https://api.jsonbin.io/v3/b';
-const SHARED_STORAGE_BIN_ID = '699063ae43b1c97be97e71d0';
+const SHARED_STORAGE_BIN_ID = '699063ae43b1c97be97e71d0'; // Auctions bin
+const BIDS_BIN_ID = '699063ae43b1c97be97e71d0'; // Using same bin for bids for simplicity (you may want separate bins later)
 const SHARED_STORAGE_API_KEY = '$2a$10$dwfI5DnmcSV.xrlrteOKBOW0qrUqwdylnR4Zz.AsmSbD9RAJM7yG6';
-const USE_SHARED_STORAGE = true; // Enabled - auctions are now shared across all users!
+const USE_SHARED_STORAGE = true; // Always true - no localStorage fallback
 
 // Clear cached exchange rate (useful for debugging)
 function clearExchangeRateCache() {
@@ -162,9 +160,9 @@ getExchangeRate().then(rate => {
 // Function to update all price displays with current exchange rate
 async function updateAllPrices() {
   const auctions = await loadStoredAuctions();
-  document.querySelectorAll('[data-price-element="true"]').forEach(priceSpan => {
+  document.querySelectorAll('[data-price-element="true"]').forEach(async (priceSpan) => {
     const auctionId = priceSpan.dataset.auctionId;
-    const highestBid = getHighestBid(auctionId);
+    const highestBid = await getHighestBid(auctionId);
     if (highestBid) {
       const usd = convertINRtoUSD(highestBid.amount);
       priceSpan.textContent = `₹${highestBid.amount.toLocaleString('en-IN')} (≈ $${usd.toFixed(2)})`;
@@ -180,263 +178,260 @@ async function updateAllPrices() {
   });
 }
 
-// Load auctions from shared storage or localStorage
+// Load auctions from JSONBin.io only (no localStorage fallback)
 async function loadStoredAuctions() {
-  // Get local auctions first (might have unsynced items)
-  let localAuctions = [];
+  if (!USE_SHARED_STORAGE || !SHARED_STORAGE_BIN_ID) {
+    console.warn('Shared storage not configured');
+    return [];
+  }
+
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        localAuctions = parsed;
+    console.log('Loading auctions from JSONBin.io...');
+    const startTime = Date.now();
+
+    // Increased timeout for reliability (20 seconds)
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => {
+        const elapsed = Date.now() - startTime;
+        reject(new Error(`Load timeout after ${elapsed}ms`));
+      }, 20000)
+    );
+
+    const fetchPromise = fetch(`${SHARED_STORAGE_API}/${SHARED_STORAGE_BIN_ID}/latest`, {
+      headers: {
+        'X-Master-Key': SHARED_STORAGE_API_KEY,
+        'X-Bin-Meta': 'false'
       }
-    }
-  } catch (e) {
-    console.warn('Failed to parse local storage:', e);
-  }
-  
-  // Try shared storage (source of truth for shared auctions)
-  if (USE_SHARED_STORAGE && SHARED_STORAGE_BIN_ID) {
-    try {
-      console.log('Attempting to load from shared storage...');
-      const startTime = Date.now();
-      
-      // Add timeout to prevent hanging (increased to 15 seconds)
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => {
-          const elapsed = Date.now() - startTime;
-          reject(new Error(`Load timeout after ${elapsed}ms`));
-        }, 15000)
-      );
-      
-      const fetchPromise = fetch(`${SHARED_STORAGE_API}/${SHARED_STORAGE_BIN_ID}/latest`, {
-        headers: {
-          'X-Master-Key': SHARED_STORAGE_API_KEY,
-          'X-Bin-Meta': 'false'
-        }
-      }).catch(fetchError => {
-        console.error('Fetch error details:', fetchError);
-        throw new Error(`Network error: ${fetchError.message}`);
-      });
-      
-      const response = await Promise.race([fetchPromise, timeoutPromise]);
-      const elapsed = Date.now() - startTime;
-      console.log(`API response received in ${elapsed}ms, status: ${response.status}`);
-      
-      if (response.ok) {
-        const data = await response.json();
-        console.log('API response data:', data);
-        
-        // Handle both formats: { auctions: [...] } or direct array
-        let remoteAuctions = [];
-        if (data.record) {
-          // JSONBin.io v3 format: { record: { auctions: [...] } }
-          remoteAuctions = Array.isArray(data.record) ? data.record : (data.record.auctions || []);
-        } else if (data.auctions) {
-          // Direct format: { auctions: [...] }
-          remoteAuctions = Array.isArray(data.auctions) ? data.auctions : [];
-        } else if (Array.isArray(data)) {
-          // Direct array format: [...]
-          remoteAuctions = data;
-        }
-        
-        if (Array.isArray(remoteAuctions)) {
-          // Merge: remote is source of truth, but preserve local imageDataUrl if missing in remote
-          const remoteIds = new Set(remoteAuctions.map(a => a.id));
-          const localOnly = localAuctions.filter(a => !remoteIds.has(a.id));
-          
-          // Merge remote auctions with local imageDataUrl preserved
-          const merged = remoteAuctions.map(remoteAuction => {
-            const localAuction = localAuctions.find(a => a.id === remoteAuction.id);
-            if (localAuction) {
-              // Merge: use remote as base, but preserve local imageDataUrl
-              const mergedAuction = { 
-                ...remoteAuction, 
-                imageDataUrl: localAuction.imageDataUrl || remoteAuction.imageDataUrl 
-              };
-              // Remove empty imageUrl if we have imageDataUrl or if it's empty
-              if (mergedAuction.imageDataUrl) {
-                // Prefer imageDataUrl, remove empty imageUrl
-                if (!mergedAuction.imageUrl || mergedAuction.imageUrl.trim().length === 0) {
-                  delete mergedAuction.imageUrl;
-                }
-              } else if (mergedAuction.imageUrl && mergedAuction.imageUrl.trim().length === 0) {
-                // Remove empty imageUrl strings
-                delete mergedAuction.imageUrl;
-              }
-              return mergedAuction;
-            }
-            // Remove empty imageUrl from remote auctions too
-            const cleanedRemote = { ...remoteAuction };
-            if (cleanedRemote.imageUrl && cleanedRemote.imageUrl.trim().length === 0) {
-              delete cleanedRemote.imageUrl;
-            }
-            return cleanedRemote;
-          });
-          
-          // Add local-only auctions (these already have imageDataUrl)
-          merged.push(...localOnly);
-          
-          console.log('Merged auctions with imageDataUrl preserved:', merged.map(a => ({
-            id: a.id,
-            hasImageDataUrl: !!a.imageDataUrl,
-            hasImageUrl: !!a.imageUrl
-          })));
-          
-          // Cache merged data locally (but preserve full local data with imageDataUrl)
-          try {
-            // Don't overwrite local storage with merged data - keep full local data
-            // The merged data is used for display, but we preserve the original local data
-            // This ensures imageDataUrl is never lost
-            const localData = localStorage.getItem(STORAGE_KEY);
-            if (localData) {
-              try {
-                const localParsed = JSON.parse(localData);
-                if (Array.isArray(localParsed)) {
-                  // Update only the remote auctions in local storage, preserve local imageDataUrl
-                  const updatedLocal = localParsed.map(localAuction => {
-                    const remoteAuction = remoteAuctions.find(a => a.id === localAuction.id);
-                    if (remoteAuction) {
-                      // Update from remote but keep local imageDataUrl
-                      return { ...remoteAuction, imageDataUrl: localAuction.imageDataUrl || remoteAuction.imageDataUrl };
-                    }
-                    return localAuction;
-                  });
-                  // Add any new remote auctions
-                  const localIds = new Set(updatedLocal.map(a => a.id));
-                  const newRemote = remoteAuctions.filter(a => !localIds.has(a.id));
-                  updatedLocal.push(...newRemote);
-                  localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedLocal));
-                }
-              } catch (e) {
-                // If parsing fails, just use merged
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
-              }
-            } else {
-              localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
-            }
-            console.log('✓ Loaded', merged.length, 'auctions (', remoteAuctions.length, 'remote +', localOnly.length, 'local)');
-          } catch (e) {
-            console.warn('Failed to cache to localStorage:', e);
+    }).catch(fetchError => {
+      console.error('Network error:', fetchError);
+      throw new Error(`Network error: ${fetchError.message}`);
+    });
+
+    const response = await Promise.race([fetchPromise, timeoutPromise]);
+    const elapsed = Date.now() - startTime;
+    console.log(`JSONBin.io response received in ${elapsed}ms, status: ${response.status}`);
+
+    if (response.ok) {
+      const data = await response.json();
+      console.log('Raw response data:', data);
+
+      // Handle different possible data structures
+      let auctions = [];
+      if (data.record) {
+        // JSONBin.io v3 format: { record: { auctions: [...] } }
+        auctions = Array.isArray(data.record) ? data.record : (data.record.auctions || []);
+      } else if (data.auctions) {
+        // Direct format: { auctions: [...] }
+        auctions = Array.isArray(data.auctions) ? data.auctions : [];
+      } else if (Array.isArray(data)) {
+        // Direct array format: [...]
+        auctions = data;
+      }
+
+      if (Array.isArray(auctions)) {
+        console.log(`✓ Successfully loaded ${auctions.length} auctions from JSONBin.io`);
+
+        // Clean up any empty imageUrl strings
+        const cleanedAuctions = auctions.map(auction => {
+          const cleaned = { ...auction };
+          if (cleaned.imageUrl && cleaned.imageUrl.trim().length === 0) {
+            delete cleaned.imageUrl;
           }
-          return merged;
-        } else {
-          console.warn('API returned invalid data format:', data);
-        }
+          return cleaned;
+        });
+
+        return cleanedAuctions;
       } else {
-        const errorText = await response.text().catch(() => 'Unable to read error');
-        console.error(`API returned error status ${response.status}:`, errorText);
-        throw new Error(`API error ${response.status}: ${errorText.substring(0, 100)}`);
+        console.warn('Invalid data structure from JSONBin.io:', data);
+        return [];
       }
-    } catch (error) {
-      console.warn('Failed to load from shared storage, using local only:', error.message);
-      console.warn('Error details:', error);
+    } else {
+      const errorText = await response.text().catch(() => 'Unable to read error');
+      console.error(`JSONBin.io returned error ${response.status}:`, errorText);
+      throw new Error(`API error ${response.status}: ${errorText.substring(0, 100)}`);
     }
+  } catch (error) {
+    console.error('Failed to load auctions from JSONBin.io:', error.message);
+    console.error('Full error details:', error);
+    return [];
   }
-  
-  // Return local auctions (fallback)
-  if (localAuctions.length > 0) {
-    console.log('Loaded', localAuctions.length, 'auctions from localStorage (fallback)');
-  }
-  return localAuctions;
 }
 
-// Helper function to prepare auctions for shared storage (remove large imageDataUrl)
-function prepareAuctionsForSync(auctions) {
-  return auctions.map(auction => {
-    const { imageDataUrl, ...auctionWithoutImageData } = auction;
-    // Keep imageUrl, but remove imageDataUrl (base64 data is too large for API)
-    return auctionWithoutImageData;
+
+
+// Helper function to compress base64 image data
+function compressImageData(imageDataUrl, maxWidth = 400, quality = 0.7) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+
+        // Calculate new dimensions maintaining aspect ratio
+        const aspectRatio = img.width / img.height;
+        let newWidth = maxWidth;
+        let newHeight = maxWidth / aspectRatio;
+
+        if (newHeight > maxWidth) {
+          newHeight = maxWidth;
+          newWidth = maxWidth * aspectRatio;
+        }
+
+        canvas.width = newWidth;
+        canvas.height = newHeight;
+
+        // Draw and compress
+        ctx.drawImage(img, 0, 0, newWidth, newHeight);
+        const compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
+
+        resolve(compressedDataUrl);
+      } catch (error) {
+        reject(error);
+      }
+    };
+    img.onerror = () => {
+      reject(new Error('Failed to load image for compression'));
+    };
+    img.src = imageDataUrl;
   });
 }
 
-// Save auctions to shared storage and localStorage
-async function saveStoredAuctions(list) {
-  // Always save to localStorage first (for offline access and immediate availability)
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
-    console.log('Saved to localStorage');
-  } catch (error) {
-    console.error('Failed to save to localStorage:', error);
-    throw error; // This is critical, so throw if it fails
-  }
-  
-  // Try to save to shared storage if enabled (non-blocking)
-  if (USE_SHARED_STORAGE && SHARED_STORAGE_BIN_ID) {
-    try {
-      // Remove imageDataUrl before syncing (too large for API, keep only imageUrl)
-      const auctionsForSync = prepareAuctionsForSync(list);
-      const payload = { auctions: auctionsForSync, updatedAt: Date.now() };
-      const payloadSize = JSON.stringify(payload).length;
-      const payloadSizeKB = (payloadSize / 1024).toFixed(2);
-      console.log(`Syncing ${auctionsForSync.length} auctions (payload: ${payloadSizeKB}KB)...`);
-      
-      // Create a timeout promise (10 seconds)
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('API request timeout')), 10000)
-      );
-      
-      // Race between fetch and timeout
-      const fetchPromise = fetch(`${SHARED_STORAGE_API}/${SHARED_STORAGE_BIN_ID}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Master-Key': SHARED_STORAGE_API_KEY
-        },
-        body: JSON.stringify(payload)
-      });
-      
-      const response = await Promise.race([fetchPromise, timeoutPromise]);
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.warn('Failed to save to shared storage. Status:', response.status, 'Error:', errorText);
-        // Don't throw - localStorage is saved, that's good enough
-      } else {
-        console.log('Successfully saved to shared storage');
+// Helper function to prepare auctions for shared storage
+async function prepareAuctionsForSync(auctions) {
+  const processedAuctions = [];
+
+  for (const auction of auctions) {
+    if (auction.imageDataUrl && auction.imageDataUrl.length > 100000) { // Only compress large images
+      try {
+        console.log('Compressing image for auction:', auction.id);
+        const compressedImageData = await compressImageData(auction.imageDataUrl);
+        processedAuctions.push({
+          ...auction,
+          imageDataUrl: compressedImageData
+        });
+      } catch (error) {
+        console.warn('Failed to compress image, keeping original:', error);
+        processedAuctions.push(auction);
       }
-    } catch (error) {
-      console.warn('Failed to save to shared storage (network/API error):', error.message);
-      // Continue anyway - at least localStorage is saved
-      // Don't throw - we want to continue even if API fails
+    } else {
+      processedAuctions.push(auction);
     }
   }
+
+  return processedAuctions;
 }
 
-// Bidding system functions
-function loadBids() {
+// Save auctions to JSONBin.io only (no localStorage)
+async function saveStoredAuctions(list) {
+  if (!USE_SHARED_STORAGE || !SHARED_STORAGE_BIN_ID) {
+    console.warn('Shared storage not configured - cannot save auctions');
+    throw new Error('Shared storage not configured');
+  }
+
   try {
-    const raw = localStorage.getItem(BIDS_STORAGE_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    return typeof parsed === 'object' ? parsed : {};
-  } catch {
+    // Prepare auctions for JSONBin.io (compress images if needed)
+    const auctionsForSync = await prepareAuctionsForSync(list);
+    const payload = { auctions: auctionsForSync, updatedAt: Date.now() };
+    const payloadSize = JSON.stringify(payload).length;
+    const payloadSizeKB = (payloadSize / 1024).toFixed(2);
+    console.log(`Saving ${auctionsForSync.length} auctions to JSONBin.io (payload: ${payloadSizeKB}KB)...`);
+
+    // Increased timeout for saving (15 seconds)
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Save timeout')), 15000)
+    );
+
+    const fetchPromise = fetch(`${SHARED_STORAGE_API}/${SHARED_STORAGE_BIN_ID}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Master-Key': SHARED_STORAGE_API_KEY
+      },
+      body: JSON.stringify(payload)
+    });
+
+    const response = await Promise.race([fetchPromise, timeoutPromise]);
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => 'Unable to read error');
+      console.error('Failed to save to JSONBin.io. Status:', response.status, 'Error:', errorText);
+      throw new Error(`Save failed: ${response.status} - ${errorText}`);
+    } else {
+      console.log('✓ Successfully saved auctions to JSONBin.io');
+    }
+  } catch (error) {
+    console.error('Failed to save auctions to JSONBin.io:', error.message);
+    throw error; // Re-throw so calling code knows save failed
+  }
+}
+
+
+
+// Bidding system functions (JSONBin.io only)
+async function loadBids() {
+  if (!USE_SHARED_STORAGE || !BIDS_BIN_ID) {
+    console.warn('Bids storage not configured');
     return {};
   }
+
+  try {
+    const response = await fetch(`${SHARED_STORAGE_API}/${BIDS_BIN_ID}/latest`, {
+      headers: {
+        'X-Master-Key': SHARED_STORAGE_API_KEY,
+        'X-Bin-Meta': 'false'
+      }
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      return data.record?.bids || data.bids || {};
+    }
+  } catch (error) {
+    console.error('Failed to load bids:', error);
+  }
+  return {};
 }
 
-function saveBids(bids) {
+async function saveBids(bids) {
+  if (!USE_SHARED_STORAGE || !BIDS_BIN_ID) {
+    console.warn('Bids storage not configured');
+    return;
+  }
+
   try {
-    localStorage.setItem(BIDS_STORAGE_KEY, JSON.stringify(bids));
-  } catch {
-    // ignore
+    const response = await fetch(`${SHARED_STORAGE_API}/${BIDS_BIN_ID}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Master-Key': SHARED_STORAGE_API_KEY
+      },
+      body: JSON.stringify({ bids, updatedAt: Date.now() })
+    });
+
+    if (!response.ok) {
+      console.error('Failed to save bids');
+    } else {
+      console.log('✓ Bids saved to JSONBin.io');
+    }
+  } catch (error) {
+    console.error('Error saving bids:', error);
   }
 }
 
-function getHighestBid(auctionId) {
-  const bids = loadBids();
+async function getHighestBid(auctionId) {
+  const bids = await loadBids();
   const auctionBids = bids[auctionId] || [];
   if (auctionBids.length === 0) return null;
-  return auctionBids.reduce((highest, bid) => 
+  return auctionBids.reduce((highest, bid) =>
     bid.amount > highest.amount ? bid : highest, auctionBids[0]
   );
 }
 
 async function addBid(auctionId, amount, bidderName, bidderEmail) {
-  const bids = loadBids();
+  const bids = await loadBids();
   if (!bids[auctionId]) bids[auctionId] = [];
-  
+
   bids[auctionId].push({
     id: `bid-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
     amount: amount,
@@ -444,18 +439,17 @@ async function addBid(auctionId, amount, bidderName, bidderEmail) {
     bidderEmail: bidderEmail || '',
     timestamp: Date.now()
   });
-  
-  saveBids(bids);
-  
+
+  await saveBids(bids);
+
   // Update auction's current bid
-  loadStoredAuctions().then(auctions => {
-    const auctionIndex = auctions.findIndex(a => String(a.id) === String(auctionId));
-    if (auctionIndex !== -1) {
-      auctions[auctionIndex].currentBidINR = amount;
-      saveStoredAuctions(auctions).catch(err => console.warn('Failed to save bid update:', err));
-    }
-  });
-  
+  const auctions = await loadStoredAuctions();
+  const auctionIndex = auctions.findIndex(a => String(a.id) === String(auctionId));
+  if (auctionIndex !== -1) {
+    auctions[auctionIndex].currentBidINR = amount;
+    await saveStoredAuctions(auctions);
+  }
+
   return bids[auctionId];
 }
 
@@ -523,66 +517,24 @@ function handleAuctionForm() {
       const now = Date.now();
       const endTime = now + durationMinutes * 60 * 1000;
 
-      console.log('Loading auctions...');
-      // For form submission, load from localStorage first (fast, reliable)
-      // Then merge with remote data if available
+      console.log('Loading current auctions from JSONBin.io...');
+      // Load directly from JSONBin.io
       let auctions = [];
       try {
-        // Get from localStorage first
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed)) {
-            auctions = parsed;
-            console.log('Loaded', auctions.length, 'auctions from localStorage');
-          }
-        }
-        
-        // Try to get latest from shared storage (non-blocking, merge if available)
-        if (USE_SHARED_STORAGE && SHARED_STORAGE_BIN_ID) {
-          try {
-            const timeoutPromise = new Promise((_, reject) => 
-              setTimeout(() => reject(new Error('Load timeout')), 5000)
-            );
-            const fetchPromise = fetch(`${SHARED_STORAGE_API}/${SHARED_STORAGE_BIN_ID}/latest`, {
-              headers: {
-                'X-Master-Key': SHARED_STORAGE_API_KEY,
-                'X-Bin-Meta': 'false'
-              }
-            });
-            const response = await Promise.race([fetchPromise, timeoutPromise]);
-            if (response.ok) {
-              const data = await response.json();
-              let remoteAuctions = [];
-              if (data.record) {
-                remoteAuctions = Array.isArray(data.record) ? data.record : (data.record.auctions || []);
-              } else if (Array.isArray(data)) {
-                remoteAuctions = data;
-              }
-              if (Array.isArray(remoteAuctions) && remoteAuctions.length > 0) {
-                // Merge: use remote as base, add any local-only items
-                const remoteIds = new Set(remoteAuctions.map(a => a.id));
-                const localOnly = auctions.filter(a => !remoteIds.has(a.id));
-                auctions = [...remoteAuctions, ...localOnly];
-                console.log('Merged with remote:', auctions.length, 'total auctions');
-              }
-            }
-          } catch (e) {
-            console.warn('Could not fetch remote auctions (continuing with local):', e.message);
-          }
-        }
+        auctions = await loadStoredAuctions();
+        console.log('Loaded', auctions.length, 'auctions from JSONBin.io');
       } catch (error) {
         console.error('Failed to load auctions:', error);
         auctions = [];
       }
-      
-      console.log('Final auctions array:', auctions.length);
+
+      console.log('Current auctions array:', auctions.length);
 
       const file = imageFileInput?.files && imageFileInput.files[0];
 
       // Helper to finalize save + redirect
-      function finishSave(extra) {
-        console.log('Saving auction...');
+      async function finishSave(extra) {
+        console.log('🔄 Creating new auction with extra data:', Object.keys(extra));
         const newAuction = {
           id: `user-${now}`,
           title,
@@ -596,84 +548,59 @@ function handleAuctionForm() {
           newAuction.imageUrl = imageUrl.trim();
         }
         auctions.push(newAuction);
-        console.log('New auction object:', newAuction);
-        console.log('Total auctions to save:', auctions.length);
-        
-        // Save to localStorage immediately (synchronous)
+        console.log('✅ New auction object created:', {
+          id: newAuction.id,
+          title: newAuction.title,
+          hasImageDataUrl: !!newAuction.imageDataUrl,
+          hasImageUrl: !!newAuction.imageUrl,
+          imageDataUrlSize: newAuction.imageDataUrl ? (newAuction.imageDataUrl.length / 1024).toFixed(1) + 'KB' : 'N/A'
+        });
+        console.log('📊 Total auctions to save:', auctions.length);
+
+        // Save directly to JSONBin.io
         try {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(auctions));
-          console.log('✓ Saved', auctions.length, 'auctions to localStorage');
-          
-          // Verify it was saved
-          const verify = localStorage.getItem(STORAGE_KEY);
-          if (verify) {
-            const parsed = JSON.parse(verify);
-            console.log('✓ Verification: localStorage has', parsed.length, 'auctions');
-            console.log('✓ New auction ID:', newAuction.id);
-          } else {
-            throw new Error('Verification failed - localStorage save did not persist');
-          }
+          await saveStoredAuctions(auctions);
+          console.log('✓ Successfully saved auction to JSONBin.io');
+          console.log('✓ New auction ID:', newAuction.id);
+          console.log('Redirecting to auctions page...');
+          window.location.href = "auctions.html";
         } catch (error) {
-          console.error('✗ Failed to save to localStorage:', error);
-          alert('Error saving auction. Please try again.');
+          console.error('✗ Failed to save auction to JSONBin.io:', error);
+          alert('Error creating auction. Please try again.');
           if (submitButton) {
             submitButton.disabled = false;
             submitButton.textContent = 'Create auction';
           }
-          return;
-        }
-        
-        // Sync to shared storage BEFORE redirect (but don't wait if it's slow)
-        if (USE_SHARED_STORAGE && SHARED_STORAGE_BIN_ID) {
-          // Remove imageDataUrl before syncing (too large for API, keep only imageUrl)
-          const auctionsForSync = prepareAuctionsForSync(auctions);
-          const payload = { auctions: auctionsForSync, updatedAt: Date.now() };
-          const payloadSize = JSON.stringify(payload).length;
-          const payloadSizeKB = (payloadSize / 1024).toFixed(2);
-          console.log(`Syncing ${auctionsForSync.length} auctions to shared storage (payload: ${payloadSizeKB}KB)...`);
-          
-          // Start the sync but don't wait for it
-          const syncPromise = fetch(`${SHARED_STORAGE_API}/${SHARED_STORAGE_BIN_ID}`, {
-            method: 'PUT',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Master-Key': SHARED_STORAGE_API_KEY
-            },
-            body: JSON.stringify(payload)
-          }).then(response => {
-            if (response.ok) {
-              console.log('✓ Successfully synced', auctions.length, 'auctions to shared storage');
-            } else {
-              return response.text().then(text => {
-                console.warn('✗ Failed to sync to shared storage:', response.status, text);
-              });
-            }
-          }).catch(err => {
-            console.warn('✗ Background sync to shared storage failed:', err.message);
-          });
-          
-          // Wait max 2 seconds for sync, then redirect anyway
-          Promise.race([
-            syncPromise,
-            new Promise(resolve => setTimeout(resolve, 2000))
-          ]).then(() => {
-            console.log('Redirecting to auctions page...');
-            window.location.href = "auctions.html";
-          });
-        } else {
-          // No shared storage, redirect immediately
-          console.log('Redirecting to auctions page...');
-          window.location.href = "auctions.html";
         }
       }
 
       if (file) {
-        console.log('Reading image file...');
+        console.log('Reading and compressing image file...');
         const reader = new FileReader();
-        reader.onload = () => {
-          const dataUrl = typeof reader.result === "string" ? reader.result : "";
-          console.log('Image read, saving...');
-          finishSave({ imageDataUrl: dataUrl });
+        reader.onload = async () => {
+          try {
+            const dataUrl = typeof reader.result === "string" ? reader.result : "";
+            console.log('Image read, size:', (dataUrl.length / 1024).toFixed(1), 'KB');
+
+            // Only compress if image is large (>100KB)
+            if (dataUrl.length > 100000) {
+              console.log('Compressing large image...');
+              const compressedDataUrl = await compressImageData(dataUrl, 600, 0.8);
+              const compressionRatio = ((dataUrl.length - compressedDataUrl.length) / dataUrl.length * 100).toFixed(1);
+              console.log(`Image compressed: ${compressionRatio}% size reduction (${(compressedDataUrl.length/1024).toFixed(1)}KB)`);
+              await finishSave({ imageDataUrl: compressedDataUrl });
+            } else {
+              console.log('Image is small enough, skipping compression');
+              await finishSave({ imageDataUrl: dataUrl });
+            }
+          } catch (error) {
+            console.error('Image processing failed:', error);
+            alert('Error processing image. Please try again.');
+            if (submitButton) {
+              submitButton.disabled = false;
+              submitButton.textContent = 'Create auction';
+            }
+          }
         };
         reader.onerror = () => {
           console.error('FileReader error');
@@ -686,7 +613,7 @@ function handleAuctionForm() {
         reader.readAsDataURL(file);
       } else {
         console.log('No file, saving with URL or no image');
-        finishSave({});
+        await finishSave({});
       }
     } catch (error) {
       console.error('Unexpected error in form submission:', error);
@@ -744,7 +671,7 @@ function handleAuctionForm() {
    RENDER AUCTIONS (FIXED PROPERLY)
 ====================================================== */
 
-function renderAuctions(allAuctions) {
+async function renderAuctions(allAuctions) {
   const activeGrid = document.getElementById("active-auctions");
   const endedGrid = document.getElementById("ended-auctions");
 
@@ -766,32 +693,46 @@ function renderAuctions(allAuctions) {
     else inProgress.push(auction);
   });
 
-  inProgress.forEach(a =>
-    activeGrid.appendChild(createAuctionCard(a, false))
-  );
+  // Render active auctions
+  for (const a of inProgress) {
+    const card = await createAuctionCard(a, false);
+    activeGrid.appendChild(card);
+  }
 
-  ended.forEach(a =>
-    endedGrid.appendChild(createAuctionCard(a, true))
-  );
+  // Render ended auctions
+  for (const a of ended) {
+    const card = await createAuctionCard(a, true);
+    endedGrid.appendChild(card);
+  }
 }
 
 /* ======================================================
    CREATE CARD
 ====================================================== */
 
-function createAuctionCard(auction, isEnded) {
+async function createAuctionCard(auction, isEnded) {
   const card = document.createElement("article");
   card.className = "auction-card";
 
   const imageDiv = document.createElement("div");
   imageDiv.className = "auction-image";
 
-  if (auction.imageDataUrl) {
+  console.log(`Auction ${auction.id} image debug:`, {
+    hasImageDataUrl: !!auction.imageDataUrl,
+    hasImageUrl: !!auction.imageUrl,
+    imageDataUrlLength: auction.imageDataUrl ? auction.imageDataUrl.length : 0,
+    imageUrlPreview: auction.imageUrl ? auction.imageUrl.substring(0, 50) + '...' : null
+  });
+
+  if (auction.imageDataUrl && auction.imageDataUrl.trim() !== '') {
     imageDiv.style.backgroundImage = `url('${auction.imageDataUrl}')`;
-  } else if (auction.imageUrl) {
+    console.log(`✓ Set background image for auction ${auction.id} using imageDataUrl`);
+  } else if (auction.imageUrl && auction.imageUrl.trim() !== '') {
     imageDiv.style.backgroundImage = `url('${auction.imageUrl}')`;
+    console.log(`✓ Set background image for auction ${auction.id} using imageUrl`);
   } else {
     imageDiv.classList.add("placeholder-image");
+    console.log(`⚠ No image data for auction ${auction.id}, using placeholder`);
   }
 
   const body = document.createElement("div");
@@ -806,7 +747,7 @@ function createAuctionCard(auction, isEnded) {
   const metaEl = document.createElement("p");
   metaEl.className = "auction-meta";
 
-  const highestBid = getHighestBid(auction.id);
+  const highestBid = await getHighestBid(auction.id);
   const currentBidAmount = highestBid
     ? highestBid.amount
     : auction.currentBidINR || 0;
