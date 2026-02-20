@@ -1,15 +1,27 @@
-console.log("SurrealBid top-tier UI loaded.");
+console.log("SurrealBid loaded - using JSONBin.io storage only");
 
+// Storage configuration
+const STORAGE_KEY = "surrealbid_auctions";
+const BIDS_STORAGE_KEY = "surrealbid_bids";
 const EXCHANGE_RATE_CACHE_KEY = "surrealbid_exchange_rate";
 const EXCHANGE_RATE_CACHE_DURATION = 60 * 60 * 1000; // 1 hour in milliseconds
 const DEFAULT_INR_PER_USD = 83; // Fallback rate if API fails
 
-// Shared storage configuration - JSONBin.io is now the ONLY storage mechanism
+// JSONBin.io storage configuration (primary and only storage)
+// Note: JSONBin.io API endpoints may vary. Try these alternatives if the default doesn't work:
+// 'https://api.jsonbin.io/v3/b' (v3 API - most common)
+// 'https://api.jsonbin.io/b' (v2 API - sometimes works better)
 const SHARED_STORAGE_API = 'https://api.jsonbin.io/v3/b';
-const SHARED_STORAGE_BIN_ID = '699063ae43b1c97be97e71d0'; // Auctions bin
-const BIDS_BIN_ID = '699063ae43b1c97be97e71d0'; // Using same bin for bids for simplicity (you may want separate bins later)
-const SHARED_STORAGE_API_KEY = '$2a$10$dwfI5DnmcSV.xrlrteOKBOW0qrUqwdylnR4Zz.AsmSbD9RAJM7yG6';
-const USE_SHARED_STORAGE = true; // Always true - no localStorage fallback
+
+// Alternative endpoints to try if the default doesn't work
+const ALTERNATIVE_APIS = [
+  'https://api.jsonbin.io/v3/b',
+  'https://api.jsonbin.io/b',
+  'https://jsonbin.io/api/v3/b'
+];
+const SHARED_STORAGE_BIN_ID = '699063ae43b1c97be97e71d0'; // ⚠️ REPLACE WITH YOUR ACTUAL BIN ID
+const SHARED_STORAGE_API_KEY = '$2a$10$dwfI5DnmcSV.xrlrteOKBOW0qrUqwdylnR4Zz.AsmSbD9RAJM7yG6'; // ⚠️ REPLACE WITH YOUR ACTUAL API KEY
+const USE_SHARED_STORAGE = true; // JSONBin.io is now the only storage
 
 // Clear cached exchange rate (useful for debugging)
 function clearExchangeRateCache() {
@@ -180,93 +192,127 @@ async function updateAllPrices() {
 
 // Load auctions from JSONBin.io only (no localStorage fallback)
 async function loadStoredAuctions() {
-  if (!USE_SHARED_STORAGE || !SHARED_STORAGE_BIN_ID) {
-    console.warn('Shared storage not configured');
+  if (!USE_SHARED_STORAGE || !SHARED_STORAGE_BIN_ID || !SHARED_STORAGE_API_KEY) {
+    console.error('JSONBin.io not configured. Please check SHARED_STORAGE_BIN_ID and SHARED_STORAGE_API_KEY');
     return [];
   }
 
   try {
     console.log('Loading auctions from JSONBin.io...');
-    const startTime = Date.now();
 
-    // Increased timeout for reliability (20 seconds)
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => {
-        const elapsed = Date.now() - startTime;
-        reject(new Error(`Load timeout after ${elapsed}ms`));
-      }, 20000)
-    );
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
-    const fetchPromise = fetch(`${SHARED_STORAGE_API}/${SHARED_STORAGE_BIN_ID}/latest`, {
+    const response = await fetch(`${SHARED_STORAGE_API}/${SHARED_STORAGE_BIN_ID}/latest`, {
+      method: 'GET',
       headers: {
         'X-Master-Key': SHARED_STORAGE_API_KEY,
         'X-Bin-Meta': 'false'
-      }
-    }).catch(fetchError => {
-      console.error('Network error:', fetchError);
-      throw new Error(`Network error: ${fetchError.message}`);
+      },
+      signal: controller.signal
     });
 
-    const response = await Promise.race([fetchPromise, timeoutPromise]);
-    const elapsed = Date.now() - startTime;
-    console.log(`JSONBin.io response received in ${elapsed}ms, status: ${response.status}`);
+    clearTimeout(timeoutId);
 
-    if (response.ok) {
-      const data = await response.json();
-      console.log('Raw response data:', data);
-
-      // Handle different possible data structures
-      let auctions = [];
-      if (data.record) {
-        // JSONBin.io v3 format: { record: { auctions: [...] } }
-        auctions = Array.isArray(data.record) ? data.record : (data.record.auctions || []);
-      } else if (data.auctions) {
-        // Direct format: { auctions: [...] }
-        auctions = Array.isArray(data.auctions) ? data.auctions : [];
-      } else if (Array.isArray(data)) {
-        // Direct array format: [...]
-        auctions = data;
-      }
-
-      if (Array.isArray(auctions)) {
-        console.log(`✓ Successfully loaded ${auctions.length} auctions from JSONBin.io`);
-
-        // Clean up any empty imageUrl strings
-        const cleanedAuctions = auctions.map(auction => {
-          const cleaned = { ...auction };
-          if (cleaned.imageUrl && cleaned.imageUrl.trim().length === 0) {
-            delete cleaned.imageUrl;
-          }
-          return cleaned;
-        });
-
-        return cleanedAuctions;
-      } else {
-        console.warn('Invalid data structure from JSONBin.io:', data);
+    if (!response.ok) {
+      if (response.status === 404) {
+        console.log('Bin not found or empty, returning empty array');
         return [];
       }
-    } else {
-      const errorText = await response.text().catch(() => 'Unable to read error');
-      console.error(`JSONBin.io returned error ${response.status}:`, errorText);
-      throw new Error(`API error ${response.status}: ${errorText.substring(0, 100)}`);
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
+
+    const data = await response.json();
+    console.log('Raw JSONBin.io response:', data);
+
+    // Handle different JSONBin.io response formats
+    let auctions = [];
+    if (data.record && Array.isArray(data.record)) {
+      auctions = data.record;
+      console.log('📦 Using data.record (array format)');
+    } else if (data.record && data.record.auctions && Array.isArray(data.record.auctions)) {
+      auctions = data.record.auctions;
+      console.log('📦 Using data.record.auctions format');
+    } else if (Array.isArray(data)) {
+      auctions = data;
+      console.log('📦 Using data (direct array format)');
+    } else if (data.auctions && Array.isArray(data.auctions)) {
+      auctions = data.auctions;
+      console.log('📦 Using data.auctions format');
+    } else {
+      console.warn('⚠️ Unexpected JSONBin.io response format:', data);
+      auctions = [];
+    }
+
+    console.log(`✓ Successfully loaded ${auctions.length} auctions from JSONBin.io`);
+
+    // Validate and clean auction data, especially image data
+    const validatedAuctions = auctions.map((auction, index) => {
+      // Ensure imageDataUrl is valid if present
+      if (auction.imageDataUrl) {
+        if (typeof auction.imageDataUrl !== 'string' ||
+            !auction.imageDataUrl.startsWith('data:image/') ||
+            auction.imageDataUrl.length < 100) { // Minimum viable data URL length
+          console.warn(`⚠️ Invalid imageDataUrl for auction "${auction.title}", removing`);
+          delete auction.imageDataUrl;
+        }
+      }
+
+      // Ensure imageUrl is valid if present
+      if (auction.imageUrl) {
+        if (typeof auction.imageUrl !== 'string' ||
+            auction.imageUrl.trim().length === 0) {
+          console.warn(`⚠️ Invalid imageUrl for auction "${auction.title}", removing`);
+          delete auction.imageUrl;
+        }
+      }
+
+      console.log(`Validated auction ${index + 1}: ${auction.title}`, {
+        hasImageDataUrl: !!auction.imageDataUrl,
+        hasImageUrl: !!auction.imageUrl,
+        imageDataUrlLength: auction.imageDataUrl ? auction.imageDataUrl.length : 0,
+        imageDataUrlValid: auction.imageDataUrl ? auction.imageDataUrl.startsWith('data:image/') : false
+      });
+
+      return auction;
+    });
+
+    return validatedAuctions;
+
   } catch (error) {
-    console.error('Failed to load auctions from JSONBin.io:', error.message);
-    console.error('Full error details:', error);
+    if (error.name === 'AbortError') {
+      console.error('Request timed out - JSONBin.io may be unreachable');
+    } else {
+      console.error('Failed to load from JSONBin.io:', error.message);
+    }
+
+    // Return empty array if JSONBin.io is not available
+    console.log('Returning empty array due to JSONBin.io error');
     return [];
   }
 }
 
 
-
-// Helper function to compress base64 image data
-function compressImageData(imageDataUrl, maxWidth = 400, quality = 0.7) {
+// Helper function to compress base64 image data (aggressive compression for JSONBin.io limits)
+function compressImageData(imageDataUrl, maxWidth = 300, quality = 0.5) {
   return new Promise((resolve, reject) => {
     const img = new Image();
+
+    // Add timeout for compression
+    const timeout = setTimeout(() => {
+      reject(new Error('Image compression timeout'));
+    }, 10000); // 10 second timeout
+
     img.onload = () => {
+      clearTimeout(timeout);
       try {
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
+
+        if (!ctx) {
+          reject(new Error('Canvas context not available'));
+          return;
+        }
 
         // Calculate new dimensions maintaining aspect ratio
         const aspectRatio = img.width / img.height;
@@ -278,6 +324,10 @@ function compressImageData(imageDataUrl, maxWidth = 400, quality = 0.7) {
           newWidth = maxWidth * aspectRatio;
         }
 
+        // Ensure minimum dimensions
+        newWidth = Math.max(100, Math.min(newWidth, 1200));
+        newHeight = Math.max(100, Math.min(newHeight, 1200));
+
         canvas.width = newWidth;
         canvas.height = newHeight;
 
@@ -285,14 +335,23 @@ function compressImageData(imageDataUrl, maxWidth = 400, quality = 0.7) {
         ctx.drawImage(img, 0, 0, newWidth, newHeight);
         const compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
 
+        if (compressedDataUrl.length < 100) {
+          reject(new Error('Compressed image too small'));
+          return;
+        }
+
         resolve(compressedDataUrl);
       } catch (error) {
+        console.error('Canvas compression error:', error);
         reject(error);
       }
     };
+
     img.onerror = () => {
+      clearTimeout(timeout);
       reject(new Error('Failed to load image for compression'));
     };
+
     img.src = imageDataUrl;
   });
 }
@@ -302,7 +361,7 @@ async function prepareAuctionsForSync(auctions) {
   const processedAuctions = [];
 
   for (const auction of auctions) {
-    if (auction.imageDataUrl && auction.imageDataUrl.length > 100000) { // Only compress large images
+    if (auction.imageDataUrl && auction.imageDataUrl.length > 50000) { // Compress images over 50KB to stay under 100KB total limit
       try {
         console.log('Compressing image for auction:', auction.id);
         const compressedImageData = await compressImageData(auction.imageDataUrl);
@@ -324,103 +383,143 @@ async function prepareAuctionsForSync(auctions) {
 
 // Save auctions to JSONBin.io only (no localStorage)
 async function saveStoredAuctions(list) {
-  if (!USE_SHARED_STORAGE || !SHARED_STORAGE_BIN_ID) {
-    console.warn('Shared storage not configured - cannot save auctions');
-    throw new Error('Shared storage not configured');
+  if (!USE_SHARED_STORAGE || !SHARED_STORAGE_BIN_ID || !SHARED_STORAGE_API_KEY) {
+    throw new Error('JSONBin.io not configured. Please check SHARED_STORAGE_BIN_ID and SHARED_STORAGE_API_KEY');
   }
 
+  console.log('🔍 saveStoredAuctions called with:', {
+    listLength: list?.length || 'undefined',
+    listType: Array.isArray(list) ? 'array' : typeof list,
+    firstItem: list?.[0] ? 'exists' : 'none',
+    sampleData: list?.[0] ? { id: list[0].id, title: list[0].title } : 'N/A'
+  });
+
   try {
-    // Prepare auctions for JSONBin.io (compress images if needed)
-    const auctionsForSync = await prepareAuctionsForSync(list);
-    const payload = { auctions: auctionsForSync, updatedAt: Date.now() };
+    console.log(`Saving ${list.length} auctions to JSONBin.io...`);
+
+    const payload = {
+      auctions: list,
+      updatedAt: Date.now(),
+      version: '1.0'
+    };
+
     const payloadSize = JSON.stringify(payload).length;
     const payloadSizeKB = (payloadSize / 1024).toFixed(2);
-    console.log(`Saving ${auctionsForSync.length} auctions to JSONBin.io (payload: ${payloadSizeKB}KB)...`);
 
-    // Increased timeout for saving (15 seconds)
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('Save timeout')), 15000)
-    );
+    console.log('📦 Payload to save:', {
+      auctionCount: list.length,
+      totalSize: `${payloadSizeKB}KB`,
+      maxAllowed: '100KB (JSONBin.io free limit)',
+      status: payloadSize > 100000 ? '❌ TOO BIG' : '✅ OK'
+    });
 
-    const fetchPromise = fetch(`${SHARED_STORAGE_API}/${SHARED_STORAGE_BIN_ID}`, {
+    // Check if payload exceeds JSONBin.io free limit
+    if (payloadSize > 100000) {
+      const excessKB = ((payloadSize - 100000) / 1024).toFixed(1);
+      throw new Error(`Payload too large: ${payloadSizeKB}KB exceeds 100KB limit by ${excessKB}KB. Try smaller images or fewer auctions.`);
+    }
+
+    if (payloadSize > 90000) { // Warn if approaching limit
+      console.warn('⚠️ Payload is close to 100KB limit. Consider smaller images.');
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+
+    const response = await fetch(`${SHARED_STORAGE_API}/${SHARED_STORAGE_BIN_ID}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
         'X-Master-Key': SHARED_STORAGE_API_KEY
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: controller.signal
     });
 
-    const response = await Promise.race([fetchPromise, timeoutPromise]);
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
-      const errorText = await response.text().catch(() => 'Unable to read error');
-      console.error('Failed to save to JSONBin.io. Status:', response.status, 'Error:', errorText);
-      throw new Error(`Save failed: ${response.status} - ${errorText}`);
-    } else {
-      console.log('✓ Successfully saved auctions to JSONBin.io');
+      const errorText = await response.text().catch(() => 'Unknown error');
+      console.error('JSONBin.io Error Details:');
+      console.error('- Status:', response.status);
+      console.error('- Status Text:', response.statusText);
+      console.error('- Response:', errorText);
+      console.error('- Bin ID:', SHARED_STORAGE_BIN_ID);
+      console.error('- API Key (first 10 chars):', SHARED_STORAGE_API_KEY.substring(0, 10) + '...');
+
+      let userFriendlyMessage = 'Unknown error';
+      if (response.status === 403) {
+        userFriendlyMessage = 'Authentication failed - please check your JSONBin.io API key';
+      } else if (response.status === 404) {
+        userFriendlyMessage = 'Bin not found - please check your JSONBin.io bin ID';
+      } else if (response.status === 413) {
+        userFriendlyMessage = 'Data too large - try with smaller images';
+      } else if (response.status >= 500) {
+        userFriendlyMessage = 'JSONBin.io server error - try again later';
+      }
+
+      throw new Error(`${userFriendlyMessage} (${response.status})`);
     }
+
+    console.log('✓ Successfully saved auctions to JSONBin.io');
+
   } catch (error) {
-    console.error('Failed to save auctions to JSONBin.io:', error.message);
-    throw error; // Re-throw so calling code knows save failed
+    if (error.name === 'AbortError') {
+      throw new Error('Request timed out - check your internet connection');
+    }
+    console.error('Failed to save to JSONBin.io:', error.message);
+    throw error;
   }
 }
 
 
 
-// Bidding system functions (JSONBin.io only)
+// Bidding system functions (JSONBin.io)
 async function loadBids() {
-  if (!USE_SHARED_STORAGE || !BIDS_BIN_ID) {
-    console.warn('Bids storage not configured');
-    return {};
-  }
-
   try {
-    const response = await fetch(`${SHARED_STORAGE_API}/${BIDS_BIN_ID}/latest`, {
-      headers: {
-        'X-Master-Key': SHARED_STORAGE_API_KEY,
-        'X-Bin-Meta': 'false'
+    const auctions = await loadStoredAuctions();
+    // For now, store bids within the auctions data structure
+    // In a production app, you'd want a separate bin for bids
+    const allBids = {};
+
+    // Extract bids from auctions (this is a simple approach)
+    auctions.forEach(auction => {
+      if (auction.bids && Array.isArray(auction.bids)) {
+        allBids[auction.id] = auction.bids;
       }
     });
 
-    if (response.ok) {
-      const data = await response.json();
-      return data.record?.bids || data.bids || {};
-    }
+    return allBids;
   } catch (error) {
     console.error('Failed to load bids:', error);
+    return {};
   }
-  return {};
 }
 
 async function saveBids(bids) {
-  if (!USE_SHARED_STORAGE || !BIDS_BIN_ID) {
-    console.warn('Bids storage not configured');
-    return;
-  }
-
   try {
-    const response = await fetch(`${SHARED_STORAGE_API}/${BIDS_BIN_ID}`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Master-Key': SHARED_STORAGE_API_KEY
-      },
-      body: JSON.stringify({ bids, updatedAt: Date.now() })
+    // Load current auctions
+    const auctions = await loadStoredAuctions();
+
+    // Update bids in auctions
+    Object.keys(bids).forEach(auctionId => {
+      const auction = auctions.find(a => String(a.id) === String(auctionId));
+      if (auction) {
+        auction.bids = bids[auctionId];
+      }
     });
 
-    if (!response.ok) {
-      console.error('Failed to save bids');
-    } else {
-      console.log('✓ Bids saved to JSONBin.io');
-    }
+    // Save updated auctions
+    await saveStoredAuctions(auctions);
+    console.log('✓ Bids saved to JSONBin.io');
   } catch (error) {
-    console.error('Error saving bids:', error);
+    console.error('Failed to save bids:', error);
+    throw error;
   }
 }
 
-async function getHighestBid(auctionId) {
-  const bids = await loadBids();
+function getHighestBid(auctionId) {
+  const bids = loadBids();
   const auctionBids = bids[auctionId] || [];
   if (auctionBids.length === 0) return null;
   return auctionBids.reduce((highest, bid) =>
@@ -429,7 +528,7 @@ async function getHighestBid(auctionId) {
 }
 
 async function addBid(auctionId, amount, bidderName, bidderEmail) {
-  const bids = await loadBids();
+  const bids = loadBids();
   if (!bids[auctionId]) bids[auctionId] = [];
 
   bids[auctionId].push({
@@ -448,6 +547,9 @@ async function addBid(auctionId, amount, bidderName, bidderEmail) {
   if (auctionIndex !== -1) {
     auctions[auctionIndex].currentBidINR = amount;
     await saveStoredAuctions(auctions);
+
+    // Update bid history display if visible
+    updateBidHistoryIfVisible(auctionId);
   }
 
   return bids[auctionId];
@@ -472,7 +574,19 @@ function handleAuctionForm() {
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    console.log('Form submitted');
+    console.log('🚀 Form submitted - checking image inputs...');
+
+    // Debug: Check form inputs before processing
+    const titleInput = document.getElementById("title");
+    const artistInput = document.getElementById("artist");
+    const imageUrlInput = document.getElementById("imageUrl");
+    const imageFileInput = document.getElementById("imageFile");
+
+    console.log('🎯 Form input values at submit:');
+    console.log('- Title:', titleInput?.value);
+    console.log('- Artist:', artistInput?.value);
+    console.log('- Image URL:', imageUrlInput?.value);
+    console.log('- Image file:', imageFileInput?.files?.[0]?.name || 'No file selected');
 
     // Disable submit button to prevent double submission
     const submitButton = form.querySelector('button[type="submit"]');
@@ -490,7 +604,24 @@ function handleAuctionForm() {
       const startBidRaw = /** @type {HTMLInputElement} */ (document.getElementById("startBid"))?.value;
       const durationRaw = /** @type {HTMLInputElement} */ (document.getElementById("durationMinutes"))?.value;
 
-      console.log('Form values:', { title, artist, startBidRaw, durationRaw });
+      console.log('📝 Form submission debug:');
+      console.log('Title:', title);
+      console.log('Artist:', artist);
+      console.log('Image URL raw:', imageUrlRaw);
+      console.log('Image URL processed:', imageUrl);
+      console.log('Image file input element:', imageFileInput);
+      console.log('Image file selected:', imageFileInput?.files?.[0] ? imageFileInput.files[0].name : 'None');
+      console.log('Image file size:', imageFileInput?.files?.[0] ? (imageFileInput.files[0].size / 1024).toFixed(1) + 'KB' : 'N/A');
+      console.log('Start bid:', startBidRaw);
+      console.log('Duration:', durationRaw);
+
+      // Check if user provided any image data
+      const hasImageUrl = imageUrl && imageUrl.trim().length > 0;
+      const hasImageFile = imageFileInput?.files && imageFileInput.files[0];
+
+      if (!hasImageUrl && !hasImageFile) {
+        alert('⚠️ No image provided! Please either:\n• Paste an image URL in the "Artwork image" field, OR\n• Upload an image file using the file input\n\nWithout an image, your auction will show a placeholder.');
+      }
 
       // Validate required fields
       if (!title || !artist) {
@@ -517,24 +648,32 @@ function handleAuctionForm() {
       const now = Date.now();
       const endTime = now + durationMinutes * 60 * 1000;
 
-      console.log('Loading current auctions from JSONBin.io...');
+      console.log('🔄 Loading current auctions from JSONBin.io...');
       // Load directly from JSONBin.io
       let auctions = [];
       try {
         auctions = await loadStoredAuctions();
-        console.log('Loaded', auctions.length, 'auctions from JSONBin.io');
+        console.log('✅ Loaded', auctions.length, 'auctions from JSONBin.io:', auctions);
       } catch (error) {
-        console.error('Failed to load auctions:', error);
+        console.error('❌ Failed to load auctions:', error);
         auctions = [];
+        console.log('⚠️ Using empty auctions array due to error');
       }
 
-      console.log('Current auctions array:', auctions.length);
+      console.log('📊 Current auctions array length:', auctions.length);
 
       const file = imageFileInput?.files && imageFileInput.files[0];
+      console.log('Image handling:', {
+        hasFile: !!file,
+        hasImageUrl: !!imageUrl,
+        fileName: file?.name,
+        fileSize: file ? (file.size / 1024).toFixed(1) + 'KB' : 'N/A'
+      });
 
       // Helper to finalize save + redirect
-      async function finishSave(extra) {
-        console.log('🔄 Creating new auction with extra data:', Object.keys(extra));
+      function finishSave(extra) {
+        console.log('🏗️ finishSave called with extra:', extra);
+
         const newAuction = {
           id: `user-${now}`,
           title,
@@ -546,32 +685,64 @@ function handleAuctionForm() {
         // Only add imageUrl if it's not empty (don't save empty strings)
         if (imageUrl && imageUrl.trim().length > 0) {
           newAuction.imageUrl = imageUrl.trim();
+          console.log('🖼️ Added imageUrl to auction:', imageUrl);
+        } else {
+          console.log('⚠️ No imageUrl to add to auction');
         }
-        auctions.push(newAuction);
-        console.log('✅ New auction object created:', {
-          id: newAuction.id,
-          title: newAuction.title,
-          hasImageDataUrl: !!newAuction.imageDataUrl,
-          hasImageUrl: !!newAuction.imageUrl,
-          imageDataUrlSize: newAuction.imageDataUrl ? (newAuction.imageDataUrl.length / 1024).toFixed(1) + 'KB' : 'N/A'
-        });
-        console.log('📊 Total auctions to save:', auctions.length);
 
-        // Save directly to JSONBin.io
-        try {
-          await saveStoredAuctions(auctions);
-          console.log('✓ Successfully saved auction to JSONBin.io');
-          console.log('✓ New auction ID:', newAuction.id);
-          console.log('Redirecting to auctions page...');
+        console.log('📝 Final new auction object:', newAuction);
+        console.log('📝 Auction keys:', Object.keys(newAuction));
+        console.log('📝 Has imageDataUrl:', !!newAuction.imageDataUrl);
+        console.log('📝 Has imageUrl:', !!newAuction.imageUrl);
+
+        // Show summary of what will be saved
+        let imageSummary = '';
+        if (newAuction.imageDataUrl) {
+          imageSummary = `Uploaded image (${(newAuction.imageDataUrl.length / 1024).toFixed(1)}KB compressed)`;
+        } else if (newAuction.imageUrl) {
+          imageSummary = `Image URL: ${newAuction.imageUrl.substring(0, 50)}${newAuction.imageUrl.length > 50 ? '...' : ''}`;
+        } else {
+          imageSummary = 'No image (will show placeholder)';
+        }
+
+        console.log('📋 Auctions before push:', auctions.length, 'items');
+        console.log('🖼️ Image summary:', imageSummary);
+
+        auctions.push(newAuction);
+
+        console.log('📋 Auctions after push:', auctions.length, 'items');
+        console.log('📋 Final auctions to save:', auctions);
+
+        // Show final summary before saving
+        alert(`Auction "${title}" by ${artist} is being created!\n\nImage: ${imageSummary}\n\nStarting bid: ₹${startBidINR}\nDuration: ${durationMinutes} minutes`);
+
+        // Save to JSONBin.io
+        saveStoredAuctions(auctions).then(() => {
+          console.log('✅ Auction saved successfully to JSONBin.io');
           window.location.href = "auctions.html";
-        } catch (error) {
-          console.error('✗ Failed to save auction to JSONBin.io:', error);
-          alert('Error creating auction. Please try again.');
+        }).catch(error => {
+          console.error('Failed to save auction:', error);
+
+          // Show more specific error message
+          let errorMessage = 'Error saving auction. ';
+          if (error.message.includes('Authentication failed')) {
+            errorMessage += 'Please check your JSONBin.io API key is correct.';
+          } else if (error.message.includes('Bin not found')) {
+            errorMessage += 'Please check your JSONBin.io bin ID is correct.';
+          } else if (error.message.includes('timed out')) {
+            errorMessage += 'Please check your internet connection.';
+          } else if (error.message.includes('too large')) {
+            errorMessage += 'Please try with a smaller image.';
+          } else {
+            errorMessage += 'Please try again.';
+          }
+
+          alert(errorMessage);
           if (submitButton) {
             submitButton.disabled = false;
             submitButton.textContent = 'Create auction';
           }
-        }
+        });
       }
 
       if (file) {
@@ -582,24 +753,18 @@ function handleAuctionForm() {
             const dataUrl = typeof reader.result === "string" ? reader.result : "";
             console.log('Image read, size:', (dataUrl.length / 1024).toFixed(1), 'KB');
 
-            // Only compress if image is large (>100KB)
-            if (dataUrl.length > 100000) {
-              console.log('Compressing large image...');
-              const compressedDataUrl = await compressImageData(dataUrl, 600, 0.8);
-              const compressionRatio = ((dataUrl.length - compressedDataUrl.length) / dataUrl.length * 100).toFixed(1);
-              console.log(`Image compressed: ${compressionRatio}% size reduction (${(compressedDataUrl.length/1024).toFixed(1)}KB)`);
-              await finishSave({ imageDataUrl: compressedDataUrl });
-            } else {
-              console.log('Image is small enough, skipping compression');
-              await finishSave({ imageDataUrl: dataUrl });
-            }
+            // Aggressive compression to stay under 100KB limit
+            console.log('Compressing image aggressively...');
+            const compressedDataUrl = await compressImageData(dataUrl, 300, 0.5); // Smaller size, lower quality
+            const compressionRatio = ((dataUrl.length - compressedDataUrl.length) / dataUrl.length * 100).toFixed(1);
+            console.log(`Image compressed: ${compressionRatio}% size reduction (${(compressedDataUrl.length/1024).toFixed(1)}KB)`);
+
+            finishSave({ imageDataUrl: compressedDataUrl });
           } catch (error) {
-            console.error('Image processing failed:', error);
-            alert('Error processing image. Please try again.');
-            if (submitButton) {
-              submitButton.disabled = false;
-              submitButton.textContent = 'Create auction';
-            }
+            console.error('Image compression failed, using original:', error);
+            // If compression fails, still try to save with original (might still be too big)
+            const dataUrl = typeof reader.result === "string" ? reader.result : "";
+            finishSave({ imageDataUrl: dataUrl });
           }
         };
         reader.onerror = () => {
@@ -612,8 +777,7 @@ function handleAuctionForm() {
         };
         reader.readAsDataURL(file);
       } else {
-        console.log('No file, saving with URL or no image');
-        await finishSave({});
+        finishSave({});
       }
     } catch (error) {
       console.error('Unexpected error in form submission:', error);
@@ -631,10 +795,20 @@ function handleAuctionForm() {
   const grid = document.querySelector(".auctions-grid");
   if (!grid) return;
 
+  // Show skeleton loading initially
+  showSkeletonLoading();
+
+  // Initialize filters
+  initFilters();
+
   // Load auctions asynchronously
   loadStoredAuctions().then(stored => {
+    hideSkeletonLoading();
     renderAuctions(stored);
-    
+
+    // Initialize bidders ticker
+    initializeBiddersTicker();
+
     // Poll for new auctions every 10 seconds (if using shared storage)
     if (USE_SHARED_STORAGE) {
       let allAuctions = stored;
@@ -645,25 +819,30 @@ function handleAuctionForm() {
           // Check if auctions changed (new ones added or count changed)
           const currentIds = new Set(allAuctions.map(a => a.id));
           const updatedIds = new Set(updatedAuctions.map(a => a.id));
-          
+
           // Check if there are new auctions
           const newAuctions = updatedAuctions.filter(a => !currentIds.has(a.id));
-          
+
           // Also check if count changed (someone might have deleted)
           if (newAuctions.length > 0 || updatedAuctions.length !== allAuctions.length) {
-            console.log('New auctions detected! Reloading page...', {
+            console.log('New auctions detected! Re-rendering auctions...', {
               current: allAuctions.length,
               updated: updatedAuctions.length,
               new: newAuctions.length
             });
             allAuctions = updatedAuctions;
-            location.reload();
+            // Re-render auctions instead of reloading the page
+            renderAuctions(updatedAuctions);
           }
         } catch (error) {
           console.warn('Error polling for new auctions:', error);
         }
       }, 10000);
     }
+  }).catch(error => {
+    console.error('Failed to load auctions:', error);
+    hideSkeletonLoading();
+    showErrorState();
   });
 })();
 
@@ -671,7 +850,7 @@ function handleAuctionForm() {
    RENDER AUCTIONS (FIXED PROPERLY)
 ====================================================== */
 
-async function renderAuctions(allAuctions) {
+function renderAuctions(allAuctions) {
   const activeGrid = document.getElementById("active-auctions");
   const endedGrid = document.getElementById("ended-auctions");
 
@@ -694,46 +873,80 @@ async function renderAuctions(allAuctions) {
   });
 
   // Render active auctions
-  for (const a of inProgress) {
-    const card = await createAuctionCard(a, false);
-    activeGrid.appendChild(card);
-  }
+  inProgress.forEach(a =>
+    activeGrid.appendChild(createAuctionCard(a, false))
+  );
 
   // Render ended auctions
-  for (const a of ended) {
-    const card = await createAuctionCard(a, true);
-    endedGrid.appendChild(card);
-  }
+  ended.forEach(a =>
+    endedGrid.appendChild(createAuctionCard(a, true))
+  );
+
+  // Update watchlist buttons after rendering
+  updateWatchlistButtons();
 }
 
 /* ======================================================
    CREATE CARD
 ====================================================== */
 
-async function createAuctionCard(auction, isEnded) {
+function createAuctionCard(auction, isEnded) {
   const card = document.createElement("article");
   card.className = "auction-card";
 
   const imageDiv = document.createElement("div");
   imageDiv.className = "auction-image";
+  imageDiv.style.cursor = "pointer";
+  imageDiv.onclick = () => openLightbox(auction.id);
 
   console.log(`Auction ${auction.id} image debug:`, {
     hasImageDataUrl: !!auction.imageDataUrl,
     hasImageUrl: !!auction.imageUrl,
     imageDataUrlLength: auction.imageDataUrl ? auction.imageDataUrl.length : 0,
-    imageUrlPreview: auction.imageUrl ? auction.imageUrl.substring(0, 50) + '...' : null
+    imageUrlPreview: auction.imageUrl ? auction.imageUrl.substring(0, 50) + '...' : null,
+    auctionKeys: Object.keys(auction)
   });
+
+  // Check if image data is valid
+  if (auction.imageDataUrl) {
+    console.log(`Image data URL starts with: ${auction.imageDataUrl.substring(0, 30)}...`);
+    console.log(`Is valid data URL: ${auction.imageDataUrl.startsWith('data:image/')}`);
+  }
 
   if (auction.imageDataUrl && auction.imageDataUrl.trim() !== '') {
     imageDiv.style.backgroundImage = `url('${auction.imageDataUrl}')`;
-    console.log(`✓ Set background image for auction ${auction.id} using imageDataUrl`);
+    console.log(`✓ Set background image for auction ${auction.id} using imageDataUrl (${auction.imageDataUrl.length} chars)`);
+    // Add a class to ensure proper styling
+    imageDiv.classList.add("has-image");
   } else if (auction.imageUrl && auction.imageUrl.trim() !== '') {
     imageDiv.style.backgroundImage = `url('${auction.imageUrl}')`;
-    console.log(`✓ Set background image for auction ${auction.id} using imageUrl`);
+    console.log(`✓ Set background image for auction ${auction.id} using imageUrl: ${auction.imageUrl}`);
+    // Add a class to ensure proper styling
+    imageDiv.classList.add("has-image");
   } else {
     imageDiv.classList.add("placeholder-image");
     console.log(`⚠ No image data for auction ${auction.id}, using placeholder`);
   }
+
+  // Debug: Check if background image was set
+  console.log(`Final background-image for ${auction.id}:`, imageDiv.style.backgroundImage ? 'SET' : 'NOT SET');
+  console.log(`Classes on image div:`, imageDiv.className);
+
+  // Watchlist heart icon
+  const watchlistBtn = document.createElement("button");
+  watchlistBtn.className = "watchlist-btn";
+  watchlistBtn.setAttribute("data-auction-id", auction.id);
+  watchlistBtn.onclick = (e) => {
+    e.stopPropagation();
+    toggleWatchlist(auction.id);
+  };
+
+  const heartIcon = document.createElement("span");
+  heartIcon.className = "heart-icon";
+  heartIcon.textContent = isInWatchlist(auction.id) ? "❤️" : "🤍";
+  watchlistBtn.appendChild(heartIcon);
+
+  imageDiv.appendChild(watchlistBtn);
 
   const body = document.createElement("div");
   body.className = "auction-body";
@@ -747,7 +960,7 @@ async function createAuctionCard(auction, isEnded) {
   const metaEl = document.createElement("p");
   metaEl.className = "auction-meta";
 
-  const highestBid = await getHighestBid(auction.id);
+  const highestBid = getHighestBid(auction.id);
   const currentBidAmount = highestBid
     ? highestBid.amount
     : auction.currentBidINR || 0;
@@ -756,6 +969,14 @@ async function createAuctionCard(auction, isEnded) {
 
   metaEl.innerHTML =
     `Current bid: ₹${currentBidAmount.toLocaleString("en-IN")} (≈ $${usd.toFixed(2)})`;
+
+  // Progress bar for countdown
+  const progressContainer = document.createElement("div");
+  progressContainer.className = "auction-progress";
+
+  const progressBar = document.createElement("div");
+  progressBar.className = "auction-progress-bar";
+  progressContainer.appendChild(progressBar);
 
   const timerEl = document.createElement("p");
   timerEl.className = "auction-timer";
@@ -773,20 +994,75 @@ async function createAuctionCard(auction, isEnded) {
   }
 
   if (!isEnded) {
-    const interval = setInterval(() => {
-      const remaining = auction.endTime - Date.now();
-      timerEl.textContent = formatRemaining(remaining);
+    // Calculate total duration (we'll estimate based on typical auction lengths)
+    // For now, assume auctions are created with standard durations
+    const now = Date.now();
+    const remaining = auction.endTime - now;
+    const totalDuration = remaining; // We'll track from current point
 
-      if (remaining <= 0) {
+    const interval = setInterval(() => {
+      const currentNow = Date.now();
+      const currentRemaining = auction.endTime - currentNow;
+
+      timerEl.textContent = formatRemaining(currentRemaining);
+
+      // Update progress bar (starts full and decreases)
+      const progressPercent = Math.max(0, (currentRemaining / totalDuration) * 100);
+      progressBar.style.width = `${progressPercent}%`;
+
+      // Update progress bar color based on time remaining
+      progressContainer.className = 'auction-progress';
+      if (currentRemaining < 300000) { // Less than 5 minutes
+        progressContainer.classList.add('urgent');
+      } else if (currentRemaining < 1800000) { // Less than 30 minutes
+        progressContainer.classList.add('warning');
+      } else {
+        progressContainer.classList.add('normal');
+      }
+
+      if (currentRemaining <= 0) {
         clearInterval(interval);
+        progressBar.style.width = '0%';
+        progressContainer.classList.add('urgent');
         loadStoredAuctions().then(renderAuctions); // move automatically
       }
     }, 1000);
+
+    // Initial progress
+    const initialProgress = Math.max(0, (remaining / totalDuration) * 100);
+    progressBar.style.width = `${initialProgress}%`;
+  } else {
+    progressBar.style.width = '0%';
+    progressContainer.classList.add('urgent');
   }
 
   timerEl.textContent = isEnded
     ? "Auction ended"
     : formatRemaining(auction.endTime - Date.now());
+
+  // Bid History Button
+  const historyBtn = document.createElement("button");
+  historyBtn.className = "bid-history-btn";
+
+  // Get bid count for initial display
+  loadBids().then(bids => {
+    const auctionBids = bids[auction.id] || [];
+    const bidCount = auctionBids.length;
+    historyBtn.textContent = `📊 View Bids ${bidCount > 0 ? `(${bidCount})` : ''}`;
+  }).catch(() => {
+    historyBtn.textContent = "📊 View Bids";
+  });
+
+  historyBtn.setAttribute('data-auction-id', auction.id);
+  historyBtn.onclick = (e) => {
+    e.stopPropagation();
+    toggleBidHistory(auction.id, historyBtn);
+  };
+
+  // Bid History Container
+  const historyContainer = document.createElement("div");
+  historyContainer.className = "bid-history-container";
+  historyContainer.id = `history-${auction.id}`;
 
   const btn = document.createElement("button");
   btn.className = "auction-btn";
@@ -809,7 +1085,12 @@ async function createAuctionCard(auction, isEnded) {
   body.appendChild(titleEl);
   body.appendChild(artistEl);
   body.appendChild(metaEl);
+  if (!isEnded) {
+    body.appendChild(progressContainer);
+  }
   body.appendChild(timerEl);
+  body.appendChild(historyBtn);
+  body.appendChild(historyContainer);
   body.appendChild(btn);
 
   card.appendChild(imageDiv);
@@ -933,7 +1214,7 @@ function openBidModal(auctionId, title, artist, currentBid) {
       return;
     }
 
-    addBid(auctionId, amount, name, email)
+    addBidWithNotification(auctionId, amount, name, email)
       .then(() => {
         closeBidModal();
 
@@ -960,6 +1241,1169 @@ function closeBidModal() {
 
 window.openBidModal = openBidModal;
 window.closeBidModal = closeBidModal;
+
+/* ======================================================
+   AUCTION FILTERING SYSTEM
+====================================================== */
+
+// Global variables for filtering
+let currentAuctions = [];
+let filteredAuctions = [];
+let currentFilters = {
+  sortBy: 'ending-soon',
+  search: '',
+  minPrice: '',
+  maxPrice: '',
+  status: 'all'
+};
+
+// Debounced search function
+let searchTimeout;
+function debouncedSearch(callback, delay = 300) {
+  clearTimeout(searchTimeout);
+  searchTimeout = setTimeout(callback, delay);
+}
+
+// Initialize filters
+function initFilters() {
+  const sortBy = document.getElementById('sort-by');
+  const searchInput = document.getElementById('search-artwork');
+  const minPrice = document.getElementById('min-price');
+  const maxPrice = document.getElementById('max-price');
+  const statusFilter = document.getElementById('status-filter');
+  const clearFilters = document.getElementById('clear-filters');
+
+  if (!sortBy || !searchInput) return; // Not on auctions page
+
+  // Load current auctions
+  loadStoredAuctions().then(auctions => {
+    currentAuctions = auctions;
+    filteredAuctions = [...auctions];
+    applyFilters();
+
+    // Set up event listeners
+    sortBy.addEventListener('change', (e) => {
+      currentFilters.sortBy = e.target.value;
+      applyFilters();
+    });
+
+    searchInput.addEventListener('input', (e) => {
+      currentFilters.search = e.target.value.toLowerCase();
+      debouncedSearch(() => applyFilters());
+    });
+
+    minPrice.addEventListener('input', (e) => {
+      currentFilters.minPrice = e.target.value;
+      debouncedSearch(() => applyFilters());
+    });
+
+    maxPrice.addEventListener('input', (e) => {
+      currentFilters.maxPrice = e.target.value;
+      debouncedSearch(() => applyFilters());
+    });
+
+    statusFilter.addEventListener('change', (e) => {
+      currentFilters.status = e.target.value;
+      applyFilters();
+    });
+
+    clearFilters.addEventListener('click', () => {
+      clearAllFilters();
+    });
+  });
+}
+
+function clearAllFilters() {
+  currentFilters = {
+    sortBy: 'ending-soon',
+    search: '',
+    minPrice: '',
+    maxPrice: '',
+    status: 'all'
+  };
+
+  // Reset form inputs
+  document.getElementById('sort-by').value = 'ending-soon';
+  document.getElementById('search-artwork').value = '';
+  document.getElementById('min-price').value = '';
+  document.getElementById('max-price').value = '';
+  document.getElementById('status-filter').value = 'all';
+
+  applyFilters();
+}
+
+function applyFilters() {
+  let filtered = [...currentAuctions];
+
+  // Apply search filter
+  if (currentFilters.search) {
+    filtered = filtered.filter(auction =>
+      auction.title.toLowerCase().includes(currentFilters.search) ||
+      auction.artist.toLowerCase().includes(currentFilters.search)
+    );
+  }
+
+  // Apply price filters
+  if (currentFilters.minPrice) {
+    const minPrice = parseInt(currentFilters.minPrice);
+    filtered = filtered.filter(auction => {
+      const highestBid = getHighestBid(auction.id);
+      const currentPrice = highestBid ? highestBid.amount : (auction.currentBidINR || 0);
+      return currentPrice >= minPrice;
+    });
+  }
+
+  if (currentFilters.maxPrice) {
+    const maxPrice = parseInt(currentFilters.maxPrice);
+    filtered = filtered.filter(auction => {
+      const highestBid = getHighestBid(auction.id);
+      const currentPrice = highestBid ? highestBid.amount : (auction.currentBidINR || 0);
+      return currentPrice <= maxPrice;
+    });
+  }
+
+  // Apply status filter
+  const now = Date.now();
+  if (currentFilters.status === 'active') {
+    filtered = filtered.filter(auction => {
+      const endTime = Number(auction.endTime || 0);
+      return endTime > now;
+    });
+  } else if (currentFilters.status === 'ended') {
+    filtered = filtered.filter(auction => {
+      const endTime = Number(auction.endTime || 0);
+      return endTime <= now;
+    });
+  }
+
+  // Apply sorting
+  filtered.sort((a, b) => {
+    switch (currentFilters.sortBy) {
+      case 'ending-soon':
+        return (a.endTime || 0) - (b.endTime || 0);
+      case 'newest':
+        return (b.endTime || 0) - (a.endTime || 0); // Assuming endTime correlates with creation time
+      case 'highest-bid': {
+        const aBid = getHighestBid(a.id);
+        const bBid = getHighestBid(b.id);
+        const aPrice = aBid ? aBid.amount : (a.currentBidINR || 0);
+        const bPrice = bBid ? bBid.amount : (b.currentBidINR || 0);
+        return bPrice - aPrice;
+      }
+      case 'lowest-bid': {
+        const aBid = getHighestBid(a.id);
+        const bBid = getHighestBid(b.id);
+        const aPrice = aBid ? aBid.amount : (a.currentBidINR || 0);
+        const bPrice = bBid ? bBid.amount : (b.currentBidINR || 0);
+        return aPrice - bPrice;
+      }
+      default:
+        return 0;
+    }
+  });
+
+  filteredAuctions = filtered;
+  renderFilteredAuctions(filteredAuctions);
+}
+
+function renderFilteredAuctions(auctions) {
+  // Update results count
+  const resultsCount = document.getElementById('results-count');
+  if (resultsCount) {
+    resultsCount.textContent = `Showing ${auctions.length} of ${currentAuctions.length} auctions`;
+  }
+
+  // Re-render auctions
+  renderAuctions(auctions);
+}
+
+/* ======================================================
+   NOTIFICATION SYSTEM
+====================================================== */
+
+function showNotification(message, icon = '💰', duration = 5000) {
+  const toast = document.getElementById('notification-toast');
+  if (!toast) return;
+
+  const textElement = toast.querySelector('.notification-text');
+  const iconElement = toast.querySelector('.notification-icon');
+
+  textElement.textContent = message;
+  iconElement.textContent = icon;
+
+  toast.classList.remove('hidden');
+  toast.classList.add('show');
+
+  // Auto-hide after duration
+  if (duration > 0) {
+    setTimeout(() => {
+      hideNotification();
+    }, duration);
+  }
+}
+
+function hideNotification() {
+  const toast = document.getElementById('notification-toast');
+  if (!toast) return;
+
+  toast.classList.remove('show');
+  setTimeout(() => {
+    toast.classList.add('hidden');
+  }, 300); // Match transition duration
+}
+
+/* ======================================================
+   WATCHLIST/FAVORITES SYSTEM
+====================================================== */
+
+const WATCHLIST_KEY = "surrealbid_watchlist";
+
+function getWatchlist() {
+  try {
+    const watchlist = localStorage.getItem(WATCHLIST_KEY);
+    return watchlist ? JSON.parse(watchlist) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveWatchlist(watchlist) {
+  try {
+    localStorage.setItem(WATCHLIST_KEY, JSON.stringify(watchlist));
+  } catch (error) {
+    console.warn('Failed to save watchlist:', error);
+  }
+}
+
+function isInWatchlist(auctionId) {
+  const watchlist = getWatchlist();
+  return watchlist.includes(auctionId);
+}
+
+function toggleWatchlist(auctionId) {
+  const watchlist = getWatchlist();
+  const index = watchlist.indexOf(auctionId);
+
+  if (index > -1) {
+    // Remove from watchlist
+    watchlist.splice(index, 1);
+    showNotification("Removed from watchlist", "💔", 3000);
+  } else {
+    // Add to watchlist
+    watchlist.push(auctionId);
+    showNotification("Added to watchlist", "❤️", 3000);
+  }
+
+  saveWatchlist(watchlist);
+  updateWatchlistButtons();
+}
+
+function updateWatchlistButtons() {
+  const watchlist = getWatchlist();
+  const buttons = document.querySelectorAll('.watchlist-btn');
+
+  buttons.forEach(button => {
+    const auctionId = button.getAttribute('data-auction-id');
+    const heartIcon = button.querySelector('.heart-icon');
+
+    if (heartIcon) {
+      heartIcon.textContent = watchlist.includes(auctionId) ? "❤️" : "🤍";
+    }
+  });
+}
+
+/* ======================================================
+   IMAGE LIGHTBOX
+====================================================== */
+
+let currentLightboxIndex = 0;
+let currentAuctionsList = [];
+
+function openLightbox(auctionId) {
+  // Find auction data
+  loadStoredAuctions().then(auctions => {
+    currentAuctionsList = auctions;
+    currentLightboxIndex = auctions.findIndex(a => String(a.id) === String(auctionId));
+
+    if (currentLightboxIndex === -1) return;
+
+    showLightboxImage(auctions[currentLightboxIndex]);
+  });
+}
+
+function showLightboxImage(auction) {
+  const overlay = document.getElementById('image-lightbox');
+  const image = document.getElementById('lightbox-image');
+  const title = document.getElementById('lightbox-title');
+  const artist = document.getElementById('lightbox-artist');
+  const price = document.getElementById('lightbox-price');
+
+  // Set image source
+  if (auction.imageDataUrl) {
+    image.src = auction.imageDataUrl;
+  } else if (auction.imageUrl) {
+    image.src = auction.imageUrl;
+  } else {
+    image.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgdmlld0JveD0iMCAwIDMwMCAyMDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iMjAwIiBmaWxsPSIjRjNGNEY2Ii8+Cjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMTgiIGZpbGw9IiM5Q0E0QUYiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5ObyBJbWFnZTwvdGV4dD4KPC9zdmc+';
+  }
+
+  // Set auction info
+  title.textContent = auction.title || 'Untitled';
+  artist.textContent = `by ${auction.artist || 'Unknown Artist'}`;
+
+  // Get current bid
+  getHighestBid(auction.id).then(highestBid => {
+    const currentAmount = highestBid ? highestBid.amount : (auction.currentBidINR || 0);
+    const usdAmount = convertINRtoUSD(currentAmount);
+    price.textContent = `Current bid: ₹${currentAmount.toLocaleString('en-IN')} (≈ $${usdAmount.toFixed(2)})`;
+  });
+
+  // Show lightbox
+  overlay.classList.remove('hidden');
+  setTimeout(() => overlay.classList.add('show'), 10);
+}
+
+function closeLightbox() {
+  const overlay = document.getElementById('image-lightbox');
+  overlay.classList.remove('show');
+  setTimeout(() => overlay.classList.add('hidden'), 300);
+}
+
+function navigateLightbox(direction) {
+  if (currentAuctionsList.length === 0) return;
+
+  currentLightboxIndex += direction;
+
+  // Wrap around
+  if (currentLightboxIndex < 0) {
+    currentLightboxIndex = currentAuctionsList.length - 1;
+  } else if (currentLightboxIndex >= currentAuctionsList.length) {
+    currentLightboxIndex = 0;
+  }
+
+  showLightboxImage(currentAuctionsList[currentLightboxIndex]);
+}
+
+// Close lightbox on escape key
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    closeLightbox();
+  } else if (e.key === 'ArrowLeft') {
+    navigateLightbox(-1);
+  } else if (e.key === 'ArrowRight') {
+    navigateLightbox(1);
+  }
+});
+
+// Close lightbox when clicking outside
+document.getElementById('image-lightbox')?.addEventListener('click', (e) => {
+  if (e.target.id === 'image-lightbox') {
+    closeLightbox();
+  }
+});
+
+/* ======================================================
+   ANIMATED BID HISTORY
+====================================================== */
+
+async function toggleBidHistory(auctionId, button) {
+  const container = document.getElementById(`history-${auctionId}`);
+  const isVisible = container.classList.contains('visible');
+
+  const bids = await loadBids();
+  const auctionBids = bids[auctionId] || [];
+  const bidCount = auctionBids.length;
+
+  if (isVisible) {
+    // Hide history
+    container.classList.remove('visible');
+    container.classList.add('hiding');
+    button.textContent = `📊 View Bids ${bidCount > 0 ? `(${bidCount})` : ''}`;
+
+    setTimeout(() => {
+      container.classList.remove('hiding');
+      container.innerHTML = '';
+    }, 300);
+  } else {
+    // Show history
+    if (auctionBids.length === 0) {
+      container.innerHTML = '<div class="no-bids">No bids yet</div>';
+    } else {
+      // Show last 5 bids
+      const recentBids = auctionBids.slice(-5).reverse();
+      container.innerHTML = recentBids.map((bid, index) => `
+        <div class="bid-entry animate-in" style="animation-delay: ${index * 0.1}s">
+          <div class="bid-info">
+            <span class="bid-amount">₹${bid.amount.toLocaleString('en-IN')}</span>
+            <span class="bid-time">${formatTimeAgo(bid.timestamp)}</span>
+          </div>
+          <div class="bidder">${bid.bidderName || 'Anonymous'}</div>
+        </div>
+      `).join('');
+    }
+
+    container.classList.add('visible');
+    button.textContent = "📊 Hide Bids";
+  }
+}
+
+function formatTimeAgo(timestamp) {
+  const now = Date.now();
+  const diff = now - timestamp;
+
+  const minutes = Math.floor(diff / (1000 * 60));
+  const hours = Math.floor(diff / (1000 * 60 * 60));
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+
+  if (minutes < 1) return 'Just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  return `${days}d ago`;
+}
+
+function updateBidHistoryIfVisible(auctionId) {
+  const container = document.getElementById(`history-${auctionId}`);
+  const button = document.querySelector(`[data-auction-id="${auctionId}"].bid-history-btn`);
+
+  if (container && container.classList.contains('visible') && button) {
+    // Refresh the bid history display
+    toggleBidHistory(auctionId, button);
+    setTimeout(() => toggleBidHistory(auctionId, button), 100);
+  }
+}
+
+function highlightNewBid(auctionId) {
+  const container = document.getElementById(`history-${auctionId}`);
+  if (container && container.classList.contains('visible')) {
+    // Add a highlight effect to the latest bid entry
+    const bidEntries = container.querySelectorAll('.bid-entry');
+    if (bidEntries.length > 0) {
+      const latestBid = bidEntries[0]; // First one is the most recent
+      latestBid.classList.add('new-bid-highlight');
+
+      // Remove highlight after animation
+      setTimeout(() => {
+        latestBid.classList.remove('new-bid-highlight');
+      }, 3000);
+    }
+
+    // Add a pulse effect to the button
+    const button = document.querySelector(`[data-auction-id="${auctionId}"].bid-history-btn`);
+    if (button) {
+      button.classList.add('pulse-notification');
+      setTimeout(() => {
+        button.classList.remove('pulse-notification');
+      }, 2000);
+    }
+  }
+}
+
+
+// Initialize JSONBin.io bin if it doesn't exist
+async function initializeJsonBin() {
+  try {
+    console.log('Checking JSONBin.io bin...');
+
+    // Try to load existing data
+    const existingData = await loadStoredAuctions();
+
+    if (existingData.length === 0) {
+      console.log('Bin is empty or doesn\'t exist, initializing with empty auctions array...');
+      // Initialize with empty auctions array
+      await saveStoredAuctions([]);
+      console.log('✓ JSONBin.io bin initialized');
+    } else {
+      console.log('✓ JSONBin.io bin already contains data');
+    }
+  } catch (error) {
+    console.error('Failed to initialize JSONBin.io:', error);
+  }
+}
+
+// Run initialization on page load
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => {
+    setTimeout(initializeJsonBin, 500); // Initialize after short delay
+  });
+} else {
+  setTimeout(initializeJsonBin, 500);
+}
+
+// ======================================================
+// DAILY ACTIVITY STATS FUNCTIONS
+// ======================================================
+
+// Get today's date string (YYYY-MM-DD)
+function getTodayString() {
+  return new Date().toISOString().split('T')[0];
+}
+
+// Check if a timestamp is from today
+function isToday(timestamp) {
+  const today = getTodayString();
+  const bidDate = new Date(timestamp).toISOString().split('T')[0];
+  return bidDate === today;
+}
+
+// Count unique bidders today
+async function getTodaysUniqueBidders() {
+  try {
+    const auctions = await loadStoredAuctions();
+    const today = getTodayString();
+    const uniqueBidders = new Set();
+
+    auctions.forEach(auction => {
+      if (auction.bids && Array.isArray(auction.bids)) {
+        auction.bids.forEach(bid => {
+          if (isToday(bid.timestamp)) {
+            // Use bidder name or email as identifier
+            const bidderId = bid.bidderName || bid.bidderEmail || 'Anonymous';
+            uniqueBidders.add(bidderId);
+          }
+        });
+      }
+    });
+
+    return uniqueBidders.size;
+  } catch (error) {
+    console.error('Error counting unique bidders:', error);
+    return 0;
+  }
+}
+
+// Count total bids today
+async function getTodaysBidCount() {
+  try {
+    const auctions = await loadStoredAuctions();
+    const today = getTodayString();
+    let totalBids = 0;
+
+    auctions.forEach(auction => {
+      if (auction.bids && Array.isArray(auction.bids)) {
+        auction.bids.forEach(bid => {
+          if (isToday(bid.timestamp)) {
+            totalBids++;
+          }
+        });
+      }
+    });
+
+    return totalBids;
+  } catch (error) {
+    console.error('Error counting today\'s bids:', error);
+    return 0;
+  }
+}
+
+// Count active auctions
+async function getActiveAuctionCount() {
+  try {
+    const auctions = await loadStoredAuctions();
+    const now = Date.now();
+    let activeCount = 0;
+
+    auctions.forEach(auction => {
+      if (!auction.ended && auction.endTime > now) {
+        activeCount++;
+      }
+    });
+
+    return activeCount;
+  } catch (error) {
+    console.error('Error counting active auctions:', error);
+    return 0;
+  }
+}
+
+// Calculate total value of today's bids
+async function getTodaysTotalValue() {
+  try {
+    const auctions = await loadStoredAuctions();
+    const today = getTodayString();
+    let totalValue = 0;
+
+    auctions.forEach(auction => {
+      if (auction.bids && Array.isArray(auction.bids)) {
+        auction.bids.forEach(bid => {
+          if (isToday(bid.timestamp)) {
+            totalValue += bid.amount;
+          }
+        });
+      }
+    });
+
+    // Format as rupees (L for lakhs, K for thousands)
+    if (totalValue >= 100000) {
+      return `₹${(totalValue / 100000).toFixed(1)}L`;
+    } else if (totalValue >= 1000) {
+      return `₹${(totalValue / 1000).toFixed(0)}K`;
+    } else {
+      return `₹${totalValue.toLocaleString('en-IN')}`;
+    }
+  } catch (error) {
+    console.error('Error calculating total value:', error);
+    return '₹0';
+  }
+}
+
+// Update daily stats display
+async function updateDailyStats() {
+  try {
+    const [uniqueBidders, activeAuctions, totalValue] = await Promise.all([
+      getTodaysUniqueBidders(),
+      getActiveAuctionCount(),
+      getTodaysTotalValue()
+    ]);
+
+    const bidsElement = document.getElementById('today-bids');
+    const auctionsElement = document.getElementById('active-auctions');
+    const valueElement = document.getElementById('total-value');
+
+    if (bidsElement) {
+      bidsElement.textContent = uniqueBidders;
+      // Add animation for number changes
+      bidsElement.style.animation = 'none';
+      setTimeout(() => bidsElement.style.animation = '', 10);
+    }
+
+    if (auctionsElement) {
+      auctionsElement.textContent = activeAuctions;
+      auctionsElement.style.animation = 'none';
+      setTimeout(() => auctionsElement.style.animation = '', 10);
+    }
+
+    if (valueElement) {
+      valueElement.textContent = totalValue;
+      valueElement.style.animation = 'none';
+      setTimeout(() => valueElement.style.animation = '', 10);
+    }
+
+    console.log(`📊 Daily stats updated: ${uniqueBidders} unique bidders, ${activeAuctions} active auctions, ${totalValue} total value`);
+  } catch (error) {
+    console.error('Error updating daily stats:', error);
+  }
+}
+
+// ======================================================
+// TOP BIDDERS TICKER FUNCTIONS
+// ======================================================
+
+// Get top bidders from all auctions
+async function getTopBidders(limit = 15) {
+  try {
+    const auctions = await loadStoredAuctions();
+    const biddersMap = new Map();
+
+    // Collect all bids from all auctions
+    auctions.forEach(auction => {
+      if (auction.bids && Array.isArray(auction.bids)) {
+        auction.bids.forEach(bid => {
+          const bidderName = bid.bidderName || bid.bidderEmail || 'Anonymous';
+          const currentAmount = biddersMap.get(bidderName) || 0;
+
+          if (bid.amount > currentAmount) {
+            biddersMap.set(bidderName, {
+              name: bidderName,
+              amount: bid.amount,
+              lastBidTime: bid.timestamp,
+              totalBids: (biddersMap.get(bidderName)?.totalBids || 0) + 1
+            });
+          } else if (bid.amount === currentAmount) {
+            // Same amount, increment bid count
+            const existing = biddersMap.get(bidderName);
+            if (existing) {
+              existing.totalBids = (existing.totalBids || 0) + 1;
+            }
+          }
+        });
+      }
+    });
+
+    // Convert to array and sort by amount (highest first)
+    const topBidders = Array.from(biddersMap.values())
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, limit);
+
+    return topBidders;
+  } catch (error) {
+    console.error('Error getting top bidders:', error);
+    return [];
+  }
+}
+
+// Animated counter function
+function animateCounter(element, targetValue, duration = 1000) {
+  if (!element) return;
+
+  const startValue = parseInt(element.textContent.replace(/[^\d]/g, '')) || 0;
+  const difference = targetValue - startValue;
+
+  if (difference === 0) return; // No change needed
+
+  const startTime = performance.now();
+
+  function update(currentTime) {
+    const elapsed = currentTime - startTime;
+    const progress = Math.min(elapsed / duration, 1);
+
+    // Easing function for smooth animation
+    const easeOut = 1 - Math.pow(1 - progress, 3);
+    const currentValue = Math.round(startValue + (difference * easeOut));
+
+    element.textContent = targetValue >= 1000 ?
+      `₹${(currentValue / 100).toFixed(0)}` :
+      `₹${currentValue.toLocaleString('en-IN')}`;
+
+    if (progress < 1) {
+      requestAnimationFrame(update);
+    } else {
+      // Animation complete
+      element.classList.add('updating');
+      setTimeout(() => element.classList.remove('updating'), 600);
+    }
+  }
+
+  requestAnimationFrame(update);
+}
+
+// Update bidders ticker display
+async function updateBiddersTicker() {
+  try {
+    const topBidders = await getTopBidders(20); // Get more than displayed for variety
+    const track = document.getElementById('bidders-track');
+    const countElement = document.getElementById('active-bidders-count');
+
+    if (!track) return;
+
+    // Update active bidders count
+    if (countElement) {
+      const currentCount = parseInt(countElement.textContent) || 0;
+      animateCounter(countElement, topBidders.length, 800);
+    }
+
+    // Create bidder items (duplicate for seamless scrolling)
+    const bidderItems = topBidders.map((bidder, index) => {
+      const rank = index + 1;
+      const badge = rank <= 3 ? ['🥇', '🥈', '🥉'][rank - 1] : `Top ${rank}`;
+      const avatarLetter = bidder.name.charAt(0).toUpperCase();
+
+      return `
+        <div class="bidder-item" data-bidder="${bidder.name}">
+          <div class="bidder-avatar">${avatarLetter}</div>
+          <span class="bidder-name">${bidder.name}</span>
+          <span class="bidder-amount">₹${bidder.amount.toLocaleString('en-IN')}</span>
+          <span class="bidder-badge">${badge}</span>
+        </div>
+      `;
+    }).join('');
+
+    // Duplicate items for seamless scrolling
+    track.innerHTML = bidderItems + bidderItems;
+
+    console.log(`🏆 Updated bidders ticker with ${topBidders.length} top bidders`);
+
+  } catch (error) {
+    console.error('Error updating bidders ticker:', error);
+  }
+}
+
+// Initialize bidders ticker on auctions page
+function initializeBiddersTicker() {
+  // Update immediately
+  updateBiddersTicker();
+
+  // Update every 30 seconds
+  setInterval(updateBiddersTicker, 30000);
+
+  // Also update when auctions are refreshed
+  const originalRenderAuctions = window.renderAuctions;
+  if (originalRenderAuctions) {
+    window.renderAuctions = function(...args) {
+      originalRenderAuctions.apply(this, args);
+      // Update ticker after auctions are rendered
+      setTimeout(updateBiddersTicker, 500);
+    };
+  }
+}
+
+// Debug function to test JSONBin.io connection
+async function debugJsonBinConnection() {
+  console.log('🔍 Testing JSONBin.io connection...');
+  console.log('Bin ID:', SHARED_STORAGE_BIN_ID);
+  console.log('API Key length:', SHARED_STORAGE_API_KEY.length);
+  console.log('API Key starts with:', SHARED_STORAGE_API_KEY.substring(0, 10));
+  console.log('Current API URL:', `${SHARED_STORAGE_API}/${SHARED_STORAGE_BIN_ID}`);
+
+  // Check if credentials look valid
+  if (SHARED_STORAGE_API_KEY === '$2a$10$dwfI5DnmcSV.xrlrteOKBOW0qrUqwdylnR4Zz.AsmSbD9RAJM7yG6') {
+    console.error('❌ ERROR: You are still using the placeholder API key!');
+    console.error('Please update SHARED_STORAGE_API_KEY with your real API key from https://jsonbin.io/api-keys');
+    return;
+  }
+
+  if (SHARED_STORAGE_BIN_ID === '699063ae43b1c97be97e71d0') {
+    console.error('❌ ERROR: You are still using the placeholder bin ID!');
+    console.error('Please update SHARED_STORAGE_BIN_ID with your real bin ID from the JSONBin.io URL');
+    return;
+  }
+
+  if (!SHARED_STORAGE_API_KEY.startsWith('$2a$')) {
+    console.error('❌ ERROR: API key format looks incorrect!');
+    console.error('JSONBin.io API keys should start with "$2a$"');
+    return;
+  }
+
+  console.log('🔄 Testing different API endpoints...');
+
+  for (const apiUrl of ALTERNATIVE_APIS) {
+    console.log(`\n📡 Testing endpoint: ${apiUrl}`);
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000); // Shorter timeout for testing
+
+      const response = await fetch(`${apiUrl}/${SHARED_STORAGE_BIN_ID}/latest`, {
+        method: 'GET',
+        headers: {
+          'X-Master-Key': SHARED_STORAGE_API_KEY,
+          'X-Bin-Meta': 'false',
+          'Content-Type': 'application/json'
+        },
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      console.log(`Status: ${response.status}`);
+
+      if (response.ok) {
+        console.log(`✅ SUCCESS with endpoint: ${apiUrl}`);
+        console.log('🎉 This endpoint works! Consider updating SHARED_STORAGE_API to:', apiUrl);
+
+        const data = await response.json();
+        console.log('Data preview:', data);
+        return; // Stop testing other endpoints
+      } else {
+        console.log(`❌ Failed with ${apiUrl}: ${response.status}`);
+      }
+    } catch (error) {
+      console.log(`❌ Error with ${apiUrl}: ${error.message}`);
+    }
+  }
+
+  console.log('\n❌ None of the API endpoints worked. Please check:');
+  console.log('1. Your API key is correct and active');
+  console.log('2. Your bin ID exists and is accessible');
+  console.log('3. Your internet connection is working');
+  console.log('4. JSONBin.io service is not down for maintenance');
+
+  try {
+    // Test 1: Check if bin exists
+    console.log('📡 Test 1: Checking bin accessibility...');
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+    const response = await fetch(`${SHARED_STORAGE_API}/${SHARED_STORAGE_BIN_ID}/latest`, {
+      method: 'GET',
+      headers: {
+        'X-Master-Key': SHARED_STORAGE_API_KEY,
+        'X-Bin-Meta': 'false',
+        'Content-Type': 'application/json'
+      },
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+
+    console.log('Response status:', response.status);
+    console.log('Response status text:', response.statusText);
+
+    if (response.ok) {
+      const data = await response.json();
+      console.log('✅ Bin is accessible!');
+      console.log('Current data:', data);
+
+      // Test 2: Try to save test data
+      console.log('📡 Test 2: Testing save functionality...');
+      const testPayload = {
+        auctions: [{ id: 'debug-test', title: 'Debug Test Auction', test: true }],
+        updatedAt: Date.now(),
+        debug: true
+      };
+
+      const saveController = new AbortController();
+      const saveTimeoutId = setTimeout(() => saveController.abort(), 10000);
+
+      const saveResponse = await fetch(`${SHARED_STORAGE_API}/${SHARED_STORAGE_BIN_ID}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Master-Key': SHARED_STORAGE_API_KEY
+        },
+        body: JSON.stringify(testPayload),
+        signal: saveController.signal
+      });
+
+      clearTimeout(saveTimeoutId);
+
+      console.log('Save response status:', saveResponse.status);
+
+      if (saveResponse.ok) {
+        console.log('✅ Save functionality works!');
+        console.log('🧪 Test data saved successfully. Your setup is working!');
+      } else {
+        const saveError = await saveResponse.text();
+        console.error('❌ Save failed!');
+        console.error('Error details:', saveError);
+      }
+
+    } else {
+      const errorText = await response.text();
+      console.error('❌ Bin access failed!');
+      console.error('Error details:', errorText);
+
+      if (response.status === 403) {
+        console.error('🔐 AUTHENTICATION ERROR: Your API key is invalid or expired');
+        console.error('SOLUTION: Get a fresh API key from https://jsonbin.io/api-keys');
+      } else if (response.status === 404) {
+        console.error('📁 BIN NOT FOUND: Your bin ID is incorrect or bin was deleted');
+        console.error('SOLUTION: Create a new bin at https://jsonbin.io/bins and copy the ID');
+      } else if (response.status === 429) {
+        console.error('⏰ RATE LIMITED: Too many requests');
+        console.error('SOLUTION: Wait a few minutes and try again');
+      } else {
+        console.error('❓ UNKNOWN ERROR:', response.status);
+      }
+    }
+
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      console.error('⏰ REQUEST TIMED OUT');
+      console.error('SOLUTION: Check your internet connection');
+    } else {
+      console.error('❌ Network error:', error.message);
+    }
+  }
+
+  console.log('🔍 Debug complete. Check the messages above for solutions.');
+}
+
+// Export functions for global access
+window.openLightbox = openLightbox;
+window.closeLightbox = closeLightbox;
+window.navigateLightbox = navigateLightbox;
+window.toggleBidHistory = toggleBidHistory;
+window.initializeJsonBin = initializeJsonBin;
+window.debugJsonBinConnection = debugJsonBinConnection;
+
+/* ======================================================
+   THEME SYSTEM
+====================================================== */
+
+const THEME_KEY = "surrealbid_theme";
+
+// Initialize theme on page load
+function initTheme() {
+  const savedTheme = localStorage.getItem(THEME_KEY) || 'dark';
+  setTheme(savedTheme);
+  updateThemeToggleIcon(savedTheme);
+
+  // Add event listener to theme toggle button
+  const themeToggle = document.getElementById('theme-toggle');
+  if (themeToggle) {
+    themeToggle.addEventListener('click', toggleTheme);
+  }
+}
+
+function setTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem(THEME_KEY, theme);
+  updateThemeToggleIcon(theme);
+}
+
+function toggleTheme() {
+  const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+  const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+
+  setTheme(newTheme);
+
+  // Add a smooth transition effect
+  document.body.style.transition = 'background 0.3s ease, color 0.3s ease';
+  setTimeout(() => {
+    document.body.style.transition = '';
+  }, 300);
+}
+
+function updateThemeToggleIcon(theme) {
+  const themeIcon = document.querySelector('.theme-icon');
+  if (themeIcon) {
+    themeIcon.textContent = theme === 'dark' ? '🌙' : '☀️';
+    themeIcon.style.transform = 'rotate(0deg)';
+    setTimeout(() => {
+      themeIcon.style.transform = 'rotate(360deg)';
+    }, 50);
+  }
+}
+
+// Initialize theme when DOM is ready
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initTheme);
+} else {
+  initTheme();
+}
+
+/* ======================================================
+   SKELETON LOADING SYSTEM
+====================================================== */
+
+function showSkeletonLoading() {
+  const activeGrid = document.getElementById("active-auctions");
+  const endedGrid = document.getElementById("ended-auctions");
+
+  if (!activeGrid || !endedGrid) return;
+
+  // Clear existing content
+  activeGrid.innerHTML = "";
+  endedGrid.innerHTML = "";
+
+  // Add skeleton cards
+  for (let i = 0; i < 6; i++) {
+    const skeletonCard = createSkeletonCard();
+    activeGrid.appendChild(skeletonCard);
+  }
+
+  for (let i = 0; i < 3; i++) {
+    const skeletonCard = createSkeletonCard();
+    endedGrid.appendChild(skeletonCard);
+  }
+
+  // Show filter skeletons
+  showFilterSkeletons();
+}
+
+function hideSkeletonLoading() {
+  // Remove all skeleton cards
+  const skeletons = document.querySelectorAll('.auction-card-skeleton');
+  skeletons.forEach(skeleton => skeleton.remove());
+
+  // Hide filter skeletons
+  hideFilterSkeletons();
+}
+
+function createSkeletonCard() {
+  const card = document.createElement("article");
+  card.className = "auction-card auction-card-skeleton";
+
+  card.innerHTML = `
+    <div class="skeleton-image"></div>
+    <div class="auction-body">
+      <div class="skeleton-title"></div>
+      <div class="skeleton-artist"></div>
+      <div class="skeleton-meta"></div>
+      <div class="skeleton-timer"></div>
+      <div class="skeleton-button"></div>
+    </div>
+  `;
+
+  return card;
+}
+
+function showFilterSkeletons() {
+  const filtersContainer = document.querySelector('.auction-filters');
+  if (!filtersContainer) return;
+
+  // Hide real filters initially
+  const realFilters = filtersContainer.querySelectorAll('.filter-row');
+  realFilters.forEach(filter => filter.style.display = 'none');
+
+  // Add skeleton filters
+  const skeletonFilters = document.createElement('div');
+  skeletonFilters.className = 'filter-skeleton';
+  skeletonFilters.innerHTML = `
+    <div class="filter-skeleton-item"></div>
+    <div class="filter-skeleton-item"></div>
+    <div class="filter-skeleton-item"></div>
+    <div class="filter-skeleton-item"></div>
+    <div class="filter-skeleton-item"></div>
+  `;
+
+  filtersContainer.insertBefore(skeletonFilters, filtersContainer.firstChild);
+}
+
+function hideFilterSkeletons() {
+  const skeletonFilters = document.querySelector('.filter-skeleton');
+  if (skeletonFilters) {
+    skeletonFilters.remove();
+  }
+
+  // Show real filters
+  const realFilters = document.querySelectorAll('.auction-filters .filter-row');
+  realFilters.forEach(filter => filter.style.display = '');
+}
+
+function showErrorState() {
+  const activeGrid = document.getElementById("active-auctions");
+  if (activeGrid) {
+    activeGrid.innerHTML = `
+      <div class="error-state">
+        <h3>⚠️ JSONBin.io Connection Failed</h3>
+        <p>This could be due to:</p>
+        <ul style="text-align: left; margin: 10px 0;">
+          <li>❌ Incorrect API key or bin ID</li>
+          <li>🌐 Internet connection issues</li>
+          <li>🚫 JSONBin.io service unavailable</li>
+        </ul>
+        <div style="margin: 15px 0;">
+          <button onclick="debugJsonBinConnection()" class="btn" style="margin-right: 10px;">🔧 Debug Connection</button>
+          <button onclick="location.reload()" class="btn">🔄 Retry</button>
+        </div>
+        <p style="font-size: 14px; margin-top: 15px;">
+          <strong>To fix:</strong> Update <code>SHARED_STORAGE_BIN_ID</code> and <code>SHARED_STORAGE_API_KEY</code> in js/script.js
+        </p>
+      </div>
+    `;
+  }
+}
+
+// Enhanced bid system with notifications
+async function addBidWithNotification(auctionId, amount, bidderName, bidderEmail) {
+  const bids = await loadBids();
+  const previousHighestBid = await getHighestBid(auctionId);
+
+  if (!bids[auctionId]) bids[auctionId] = [];
+
+  bids[auctionId].push({
+    id: `bid-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    amount: amount,
+    bidderName: bidderName || 'Anonymous',
+    bidderEmail: bidderEmail || '',
+    timestamp: Date.now()
+  });
+
+  await saveBids(bids);
+
+  // Update auction's current bid
+  const auctions = await loadStoredAuctions();
+  const auctionIndex = auctions.findIndex(a => String(a.id) === String(auctionId));
+  if (auctionIndex !== -1) {
+    auctions[auctionIndex].currentBidINR = amount;
+    await saveStoredAuctions(auctions);
+  }
+
+  // Show notification if this is a new highest bid
+  if (!previousHighestBid || amount > previousHighestBid.amount) {
+    showNotification(
+      `New highest bid: ₹${amount.toLocaleString('en-IN')} on "${auctions[auctionIndex]?.title || 'Unknown Auction'}"`,
+      '🔥',
+      6000
+    );
+
+    // Highlight the bid history if it's visible
+    highlightNewBid(auctionId);
+  }
+
+  return bids[auctionId];
+}
 
 
 // console.log("SurrealBid loaded");

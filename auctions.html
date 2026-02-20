@@ -24,6 +24,9 @@
     </div>
 
     <div class="nav-right">
+      <button id="theme-toggle" class="theme-toggle" title="Toggle theme">
+        <span class="theme-icon">🌙</span>
+      </button>
       <a href="submit-auction.html" class="nav-btn">Submit Artwork</a>
     </div>
   </nav>
@@ -35,6 +38,70 @@
         Real-time bidding on one-of-a-kind surreal works.
       </p>
     </header>
+
+    <!-- Top Bidders Ticker -->
+    <div class="bidders-ticker">
+      <div class="ticker-header">
+        <span class="ticker-icon">🏆</span>
+        <span class="ticker-title">Top Bidders Live</span>
+        <span class="ticker-subtitle" id="active-bidders-count">0 active</span>
+      </div>
+      <div class="ticker-content">
+        <div class="ticker-track" id="bidders-track">
+          <!-- Dynamically populated bidders -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Auction Filters -->
+    <div class="auction-filters">
+      <div class="filter-row">
+        <div class="filter-group">
+          <label for="sort-by">Sort by:</label>
+          <select id="sort-by">
+            <option value="ending-soon">Ending Soon</option>
+            <option value="newest">Newest</option>
+            <option value="highest-bid">Highest Bid</option>
+            <option value="lowest-bid">Lowest Bid</option>
+          </select>
+        </div>
+
+        <div class="filter-group">
+          <label for="search-artwork">Search:</label>
+          <input type="text" id="search-artwork" placeholder="Search artwork or artist..." />
+        </div>
+      </div>
+
+      <div class="filter-row">
+        <div class="filter-group">
+          <label for="min-price">Min Price (₹):</label>
+          <input type="number" id="min-price" placeholder="0" min="0" />
+        </div>
+
+        <div class="filter-group">
+          <label for="max-price">Max Price (₹):</label>
+          <input type="number" id="max-price" placeholder="No limit" min="0" />
+        </div>
+
+        <div class="filter-group">
+          <label for="status-filter">Status:</label>
+          <select id="status-filter">
+            <option value="all">All Auctions</option>
+            <option value="active">Active Only</option>
+            <option value="ended">Ended Only</option>
+          </select>
+        </div>
+
+        <button id="clear-filters" class="btn-secondary">Clear Filters</button>
+      </div>
+
+      <div class="filter-results">
+        <span id="results-count">Loading auctions...</span>
+        <button id="debug-btn" class="debug-btn" onclick="debugJsonBinConnection()" title="Debug JSONBin.io Connection">
+          🔧 Debug API
+        </button>
+      </div>
+    </div>
 
     <!-- ACTIVE AUCTIONS -->
     <section>
@@ -52,6 +119,30 @@
   <footer>
     © 2026 SurrealBid. All rights reserved.
   </footer>
+
+  <!-- Notification Toast -->
+  <div id="notification-toast" class="notification-toast hidden">
+    <div class="notification-content">
+      <span class="notification-icon">💰</span>
+      <span class="notification-text"></span>
+    </div>
+    <button class="notification-close" onclick="hideNotification()">&times;</button>
+  </div>
+
+  <!-- Image Lightbox -->
+  <div id="image-lightbox" class="lightbox-overlay hidden">
+    <div class="lightbox-content">
+      <img id="lightbox-image" src="" alt="" />
+      <div class="lightbox-info">
+        <h3 id="lightbox-title"></h3>
+        <p id="lightbox-artist"></p>
+        <p id="lightbox-price"></p>
+      </div>
+      <button class="lightbox-close" onclick="closeLightbox()">&times;</button>
+      <button class="lightbox-nav lightbox-prev" onclick="navigateLightbox(-1)">&#10094;</button>
+      <button class="lightbox-nav lightbox-next" onclick="navigateLightbox(1)">&#10095;</button>
+    </div>
+  </div>
 
   <script src="js/script.js"></script>
 </body>
