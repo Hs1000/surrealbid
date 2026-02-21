@@ -17,9 +17,9 @@
   <!-- NAVIGATION BAR -->
   <nav class="navbar">
     <div class="nav-left">
-      <a href="index.html" class="logo">SurrealBid</a>
-      <a href="auctions.html" class="nav-link">Auctions</a>
-      <a href="#about" class="nav-link">About</a>
+      <a href="/" class="logo" onclick="navigateTo('/'); return false;">SurrealBid</a>
+      <a href="/auctions" class="nav-link" onclick="navigateTo('/auctions'); return false;">Auctions</a>
+      <a href="/about" class="nav-link" onclick="navigateTo('/about'); return false;">About</a>
       <a href="mailto:hardiksingh850@gmail.com" class="nav-link">Contact</a>
     </div>
 
@@ -27,39 +27,238 @@
       <button id="theme-toggle" class="theme-toggle" title="Toggle theme">
         <span class="theme-icon">🌙</span>
       </button>
-      <a href="submit-auction.html" class="nav-btn">Submit Artwork</a>
+      <a href="/submit" class="nav-btn" onclick="navigateTo('/submit'); return false;">Submit Artwork</a>
     </div>
   </nav>
 
-  <!-- MAIN CONTENT -->
-  <div class="content">
-    <h1 class="title">SurrealBid</h1>
-    <p class="subtitle">A curated auction house for surreal, unusual & unconventional art.</p>
+  <!-- HOME PAGE -->
+  <div id="home-page" class="page active">
+    <div class="content">
+      <h1 class="title">SurrealBid</h1>
+      <p class="subtitle">A curated auction house for surreal, unusual & unconventional art.</p>
 
-    <a class="btn" href="mailto:contact@surrealbid.com">Request an Invite</a>
+      <a class="btn" href="mailto:contact@surrealbid.com">Request an Invite</a>
 
-    <p class="coming-soon">Coming 2025 — apply now to join the first cohort of collectors.</p>
+      <p class="coming-soon">Coming 2025 — apply now to join the first cohort of collectors.</p>
 
-    <section id="about" class="steps">
-      <div class="step">
-        <h3>Curated surreal artists</h3>
-        <p>We handpick artists who push boundaries in surreal and unconventional art.</p>
+      <section id="about" class="steps">
+        <div class="step">
+          <h3>Curated surreal artists</h3>
+          <p>We handpick artists who push boundaries in surreal and unconventional art.</p>
+        </div>
+        <div class="step">
+          <h3>Limited auctions</h3>
+          <p>Time-boxed drops where every piece has story, rarity, and provenance.</p>
+        </div>
+        <div class="step">
+          <h3>Focused on serious collectors</h3>
+          <p>Built for collectors who want more than just another marketplace feed.</p>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <!-- AUCTIONS PAGE -->
+  <div id="auctions-page" class="page">
+    <main class="content auctions-content">
+      <header class="auctions-header">
+        <h1 class="title">Live surreal auctions</h1>
+        <p class="subtitle">
+          Real-time bidding on one-of-a-kind surreal works.
+        </p>
+      </header>
+
+      <!-- Top Bidders Ticker -->
+      <div class="bidders-ticker">
+        <div class="ticker-header">
+          <span class="ticker-icon">🏆</span>
+          <span class="ticker-title">Top Bidders Live</span>
+          <span class="ticker-subtitle" id="active-bidders-count">0 active</span>
+        </div>
+        <div class="ticker-content">
+          <div class="ticker-track" id="bidders-track">
+            <!-- Dynamically populated bidders -->
+          </div>
+        </div>
       </div>
-      <div class="step">
-        <h3>Limited auctions</h3>
-        <p>Time-boxed drops where every piece has story, rarity, and provenance.</p>
+
+      <!-- Auction Filters -->
+      <div class="auction-filters">
+        <div class="filter-row">
+          <div class="filter-group">
+            <label for="sort-by">Sort by:</label>
+            <select id="sort-by">
+              <option value="ending-soon">Ending Soon</option>
+              <option value="newest">Newest</option>
+              <option value="highest-bid">Highest Bid</option>
+              <option value="lowest-bid">Lowest Bid</option>
+            </select>
+          </div>
+
+          <div class="filter-group">
+            <label for="search-artwork">Search:</label>
+            <input type="text" id="search-artwork" placeholder="Search artwork or artist..." />
+          </div>
+        </div>
+
+        <div class="filter-row">
+          <div class="filter-group">
+            <label for="min-price">Min Price (₹):</label>
+            <input type="number" id="min-price" placeholder="0" min="0" />
+          </div>
+
+          <div class="filter-group">
+            <label for="max-price">Max Price (₹):</label>
+            <input type="number" id="max-price" placeholder="No limit" min="0" />
+          </div>
+
+          <div class="filter-group">
+            <label for="status-filter">Status:</label>
+            <select id="status-filter">
+              <option value="all">All Auctions</option>
+              <option value="active">Active Only</option>
+              <option value="ended">Ended Only</option>
+            </select>
+          </div>
+
+          <button id="clear-filters" class="btn-secondary">Clear Filters</button>
+        </div>
+
+        <div class="filter-results">
+          <span id="results-count">Loading auctions...</span>
+          <button id="debug-btn" class="debug-btn" onclick="debugJsonBinConnection()" title="Debug JSONBin.io Connection">
+            🔧 Debug API
+          </button>
+        </div>
       </div>
-      <div class="step">
-        <h3>Focused on serious collectors</h3>
-        <p>Built for collectors who want more than just another marketplace feed.</p>
-      </div>
-    </section>
+
+      <!-- UPCOMING AUCTIONS -->
+      <section>
+        <h2 class="section-heading">⏰ Upcoming Auctions</h2>
+        <div class="auctions-grid" id="upcoming-auctions"></div>
+      </section>
+
+      <!-- ACTIVE AUCTIONS -->
+      <section style="margin-top: 60px;">
+        <h2 class="section-heading">🟢 In Progress</h2>
+        <div class="auctions-grid" id="active-auctions"></div>
+      </section>
+
+      <!-- ENDED AUCTIONS -->
+      <section style="margin-top: 60px;">
+        <h2 class="section-heading">🔴 Ended Auctions</h2>
+        <div class="auctions-grid" id="ended-auctions"></div>
+      </section>
+    </main>
+  </div>
+
+  <!-- SUBMIT PAGE -->
+  <div id="submit-page" class="page">
+    <main class="content form-page">
+      <section class="form-card">
+        <h1 class="title">Submit your surreal artwork</h1>
+        <p class="subtitle">
+          Share your piece, set a starting bid, and choose how long the auction should run.
+        </p>
+
+        <form id="auction-form" class="auction-form" novalidate>
+          <div class="form-row">
+            <label for="title">Artwork title</label>
+            <input id="title" name="title" type="text" required placeholder="Echoes of a Dream" />
+          </div>
+
+          <div class="form-row">
+            <label for="artist">Artist name</label>
+            <input id="artist" name="artist" type="text" required placeholder="Your name" />
+          </div>
+
+          <div class="form-row">
+            <label for="imageUrl">Artwork image</label>
+            <div class="form-row-upload">
+              <input id="imageUrl" name="imageUrl" type="url" placeholder="https://..." />
+              <span class="or-text">or</span>
+              <input id="imageFile" name="imageFile" type="file" accept="image/*" />
+            </div>
+            <p class="form-hint">
+              Paste an image URL or upload an image file. Uploaded files stay in this browser only.
+            </p>
+          </div>
+
+          <div class="form-row-inline">
+            <div class="form-row">
+              <label for="startBid">Starting bid (INR)</label>
+              <input id="startBid" name="startBid" type="number" step="1" min="0" required placeholder="5000" />
+            </div>
+            <div class="form-row">
+              <label for="durationMinutes">Auction length (minutes)</label>
+              <input id="durationMinutes" name="durationMinutes" type="number" min="1" required placeholder="60" />
+            </div>
+          </div>
+
+          <div class="form-row">
+            <label for="auctionStartDate">Auction Start Date & Time</label>
+            <input id="auctionStartDate" name="auctionStartDate" type="datetime-local" required />
+            <p class="form-hint">
+              When should this auction begin? Leave empty to start immediately.
+            </p>
+          </div>
+
+          <button type="submit" class="btn">Create auction</button>
+        </form>
+      </section>
+    </main>
+  </div>
+
+  <!-- PAYMENT SUCCESS PAGE -->
+  <div id="payment-success-page" class="page">
+    <main class="content form-page">
+      <section class="form-card">
+        <div class="success-icon">✓</div>
+        <h1 class="title" style="color: #4ade80; margin-top: 20px;">Payment Successful!</h1>
+        <p class="subtitle">
+          Your purchase has been confirmed. You will receive a confirmation email shortly.
+        </p>
+
+        <div id="payment-details" class="checkout-summary" style="margin-top: 30px;">
+          <!-- Payment details will be populated by JS -->
+        </div>
+
+        <div style="margin-top: 30px;">
+          <a href="/auctions" class="btn" onclick="navigateTo('/auctions'); return false;">Back to Auctions</a>
+          <a href="/" class="btn" style="margin-left: 12px; background: rgba(255, 255, 255, 0.1);" onclick="navigateTo('/'); return false;">Go Home</a>
+        </div>
+      </section>
+    </main>
   </div>
 
   <!-- FOOTER -->
   <footer>
-    © 2025 SurrealBid. All rights reserved.
+    © 2026 SurrealBid. All rights reserved.
   </footer>
+
+  <!-- Notification Toast -->
+  <div id="notification-toast" class="notification-toast hidden">
+    <div class="notification-content">
+      <span class="notification-icon">💰</span>
+      <span class="notification-text"></span>
+    </div>
+    <button class="notification-close" onclick="hideNotification()">&times;</button>
+  </div>
+
+  <!-- Image Lightbox -->
+  <div id="image-lightbox" class="lightbox-overlay hidden">
+    <div class="lightbox-content">
+      <img id="lightbox-image" src="" alt="" />
+      <div class="lightbox-info">
+        <h3 id="lightbox-title"></h3>
+        <p id="lightbox-artist"></p>
+        <p id="lightbox-price"></p>
+      </div>
+      <button class="lightbox-close" onclick="closeLightbox()">&times;</button>
+      <button class="lightbox-nav lightbox-prev" onclick="navigateLightbox(-1)">&#10094;</button>
+      <button class="lightbox-nav lightbox-next" onclick="navigateLightbox(1)">&#10095;</button>
+    </div>
+  </div>
 
   <script src="js/script.js"></script>
 </body>

@@ -1,3 +1,170 @@
+// ===== CLIENT-SIDE ROUTING SYSTEM =====
+let currentPage = '/';
+
+// Route definitions
+const routes = {
+  '/': 'home-page',
+  '/auctions': 'auctions-page',
+  '/submit': 'submit-page',
+  '/about': 'home-page', // About section is in home page
+  '/payment-success': 'payment-success-page'
+};
+
+// Navigation function
+function navigateTo(path) {
+  console.log('Navigating to:', path);
+
+  // Prevent navigation if already on the same page
+  if (currentPage === path) {
+    console.log('Already on page:', path);
+    return;
+  }
+
+  // Update current page
+  currentPage = path;
+
+  // Hide all pages with smooth transition
+  document.querySelectorAll('.page').forEach(page => {
+    page.classList.remove('active');
+  });
+
+  // Show target page
+  const targetPage = routes[path];
+  if (targetPage) {
+    const pageElement = document.getElementById(targetPage);
+    if (pageElement) {
+      // Use setTimeout for smooth transition
+      setTimeout(() => {
+        pageElement.classList.add('active');
+        console.log('Showing page:', targetPage);
+      }, 50);
+    } else {
+      console.error('Page element not found:', targetPage);
+      // Fallback to home
+      setTimeout(() => {
+        document.getElementById('home-page').classList.add('active');
+      }, 50);
+    }
+  } else {
+    console.error('Route not found:', path);
+    // Fallback to home
+    setTimeout(() => {
+      document.getElementById('home-page').classList.add('active');
+    }, 50);
+  }
+
+  // Update navigation active states
+  updateNavActiveState(path);
+
+  // Handle special cases
+  if (path === '/auctions') {
+    // Initialize auctions page after transition
+    setTimeout(() => {
+      handleAuctionsPage();
+    }, 100);
+  } else if (path === '/about') {
+    // Scroll to about section
+    setTimeout(() => {
+      const aboutSection = document.getElementById('about');
+      if (aboutSection) {
+        aboutSection.scrollIntoView({ behavior: 'smooth' });
+      }
+    }, 100);
+  } else if (path === '/payment-success') {
+    // Display payment details from URL
+    setTimeout(() => {
+      displayPaymentDetails();
+    }, 100);
+  }
+
+  // Update browser history
+  history.pushState(null, null, path);
+
+  // Scroll to top for new pages
+  if (path !== '/about') {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+}
+
+// Update navigation active states
+function updateNavActiveState(activePath) {
+  // Remove active class from all nav links
+  document.querySelectorAll('.nav-link').forEach(link => {
+    link.classList.remove('nav-link-active');
+  });
+
+  // Add active class to current nav link
+  const activeLink = document.querySelector(`a[href="${activePath}"]`);
+  if (activeLink && activeLink.classList.contains('nav-link')) {
+    activeLink.classList.add('nav-link-active');
+  }
+
+  // Special case for auctions page
+  if (activePath === '/auctions') {
+    const auctionsLink = document.querySelector('a[href="/auctions"]');
+    if (auctionsLink) {
+      auctionsLink.classList.add('nav-link-active');
+    }
+  }
+}
+
+// Handle browser back/forward buttons
+window.addEventListener('popstate', function(event) {
+  const path = window.location.pathname;
+  navigateTo(path);
+});
+
+// Initialize routing on page load
+document.addEventListener('DOMContentLoaded', function() {
+  // Get initial path
+  const initialPath = window.location.pathname;
+
+  // If path is just '/' or empty, default to home
+  if (initialPath === '/' || initialPath === '') {
+    navigateTo('/');
+  } else if (routes[initialPath]) {
+    navigateTo(initialPath);
+  } else {
+    // Handle payment success with query parameters
+    if (initialPath === '/payment-success') {
+      navigateTo('/payment-success');
+    } else {
+      // Fallback to home for unknown routes
+      navigateTo('/');
+    }
+  }
+});
+
+// Display payment details for payment success page
+function displayPaymentDetails() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const paymentId = urlParams.get('payment_id');
+  const orderId = urlParams.get('order_id');
+  const amount = urlParams.get('amount');
+  const title = urlParams.get('title');
+  const artist = urlParams.get('artist');
+
+  const detailsDiv = document.getElementById('payment-details');
+  if (!detailsDiv) return;
+
+  let html = '<div class="checkout-item">';
+  if (title && artist) {
+    html += `<h3>${title}</h3><p class="checkout-artist">by ${artist}</p>`;
+  }
+  if (amount) {
+    const amountNum = Number(amount);
+    html += `<p class="checkout-price">₹${amountNum.toLocaleString('en-IN')}</p>`;
+  }
+  if (paymentId) {
+    html += `<p style="font-size: 12px; opacity: 0.7; margin-top: 12px;">Payment ID: ${paymentId}</p>`;
+  }
+  if (orderId) {
+    html += `<p style="font-size: 12px; opacity: 0.7;">Order ID: ${orderId}</p>`;
+  }
+  html += '</div>';
+  detailsDiv.innerHTML = html;
+}
+
 console.log("SurrealBid loaded - using JSONBin.io storage only");
 
 // Storage configuration
@@ -581,12 +748,16 @@ function handleAuctionForm() {
     const artistInput = document.getElementById("artist");
     const imageUrlInput = document.getElementById("imageUrl");
     const imageFileInput = document.getElementById("imageFile");
+    const auctionStartDateInput = document.getElementById("auctionStartDate");
 
     console.log('🎯 Form input values at submit:');
     console.log('- Title:', titleInput?.value);
     console.log('- Artist:', artistInput?.value);
     console.log('- Image URL:', imageUrlInput?.value);
     console.log('- Image file:', imageFileInput?.files?.[0]?.name || 'No file selected');
+    console.log('- Auction start date input element:', auctionStartDateInput);
+    console.log('- Auction start date value:', auctionStartDateInput?.value);
+    console.log('- Auction start date type:', auctionStartDateInput?.type);
 
     // Disable submit button to prevent double submission
     const submitButton = form.querySelector('button[type="submit"]');
@@ -603,6 +774,7 @@ function handleAuctionForm() {
       const imageFileInput = /** @type {HTMLInputElement} */ (document.getElementById("imageFile"));
       const startBidRaw = /** @type {HTMLInputElement} */ (document.getElementById("startBid"))?.value;
       const durationRaw = /** @type {HTMLInputElement} */ (document.getElementById("durationMinutes"))?.value;
+      const auctionStartDateRaw = /** @type {HTMLInputElement} */ (document.getElementById("auctionStartDate"))?.value;
 
       console.log('📝 Form submission debug:');
       console.log('Title:', title);
@@ -614,6 +786,19 @@ function handleAuctionForm() {
       console.log('Image file size:', imageFileInput?.files?.[0] ? (imageFileInput.files[0].size / 1024).toFixed(1) + 'KB' : 'N/A');
       console.log('Start bid:', startBidRaw);
       console.log('Duration:', durationRaw);
+      console.log('Auction start date raw:', auctionStartDateRaw);
+      console.log('Auction start date type:', typeof auctionStartDateRaw);
+      console.log('Auction start date length:', auctionStartDateRaw?.length || 0);
+
+      // Test date parsing
+      if (auctionStartDateRaw && auctionStartDateRaw.trim() !== '') {
+        const testDate = new Date(auctionStartDateRaw);
+        console.log('Parsed date object:', testDate);
+        console.log('Parsed timestamp:', testDate.getTime());
+        console.log('Is valid date:', !isNaN(testDate.getTime()));
+        console.log('Current time for comparison:', Date.now());
+        console.log('Parsed date vs current:', testDate.getTime() > Date.now() ? 'Future' : 'Past/Current');
+      }
 
       // Check if user provided any image data
       const hasImageUrl = imageUrl && imageUrl.trim().length > 0;
@@ -645,8 +830,77 @@ function handleAuctionForm() {
         return;
       }
 
+      // Calculate auction start and end times
       const now = Date.now();
-      const endTime = now + durationMinutes * 60 * 1000;
+      let startTime, endTime;
+
+      if (auctionStartDateRaw && auctionStartDateRaw.trim() !== '') {
+        // User specified a start date
+        console.log('🎯 Processing auction start date:', auctionStartDateRaw);
+
+        // Try multiple parsing methods for better compatibility
+        let parsedDate = new Date(auctionStartDateRaw);
+
+        // If that fails, try parsing as ISO string
+        if (isNaN(parsedDate.getTime())) {
+          console.log('⚠️ Standard parsing failed, trying alternative methods');
+          // Try removing timezone info and parsing
+          const cleanDateStr = auctionStartDateRaw.replace(/(\+|-)\d{2}:\d{2}$/, '');
+          parsedDate = new Date(cleanDateStr);
+
+          // If still fails, try manual parsing
+          if (isNaN(parsedDate.getTime())) {
+            console.log('⚠️ Alternative parsing failed, trying manual parsing');
+            // Manual parsing for YYYY-MM-DDTHH:MM format
+            const match = auctionStartDateRaw.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+            if (match) {
+              parsedDate = new Date(
+                parseInt(match[1]), // year
+                parseInt(match[2]) - 1, // month (0-based)
+                parseInt(match[3]), // day
+                parseInt(match[4]), // hour
+                parseInt(match[5]) // minute
+              );
+            }
+          }
+        }
+
+        startTime = parsedDate.getTime();
+
+        console.log('📅 Final parsed start time:', startTime);
+        console.log('📅 Readable start time:', new Date(startTime).toLocaleString());
+
+        if (isNaN(startTime)) {
+          alert('Please enter a valid start date and time. Format should be: YYYY-MM-DD HH:MM');
+          if (submitButton) {
+            submitButton.disabled = false;
+            submitButton.textContent = 'Create auction';
+          }
+          return;
+        }
+
+        // Check if the date is in the past (with 1 minute buffer)
+        if (startTime < (Date.now() - 60000)) {
+          alert('Start date cannot be in the past. Please select a future date and time.');
+          if (submitButton) {
+            submitButton.disabled = false;
+            submitButton.textContent = 'Create auction';
+          }
+          return;
+        }
+
+        endTime = startTime + durationMinutes * 60 * 1000;
+        console.log('✅ Auction scheduled for future:', new Date(startTime).toLocaleString());
+      } else {
+        // Start immediately
+        startTime = now;
+        endTime = now + durationMinutes * 60 * 1000;
+      }
+
+      console.log('⏰ Auction timing calculated:');
+      console.log('Start time:', new Date(startTime).toISOString());
+      console.log('End time:', new Date(endTime).toISOString());
+      console.log('Duration:', durationMinutes, 'minutes');
 
       console.log('🔄 Loading current auctions from JSONBin.io...');
       // Load directly from JSONBin.io
@@ -679,6 +933,7 @@ function handleAuctionForm() {
           title,
           artist,
           currentBidINR: startBidINR,
+          startTime,
           endTime,
           ...extra
         };
@@ -694,6 +949,10 @@ function handleAuctionForm() {
         console.log('📝 Auction keys:', Object.keys(newAuction));
         console.log('📝 Has imageDataUrl:', !!newAuction.imageDataUrl);
         console.log('📝 Has imageUrl:', !!newAuction.imageUrl);
+        console.log('📝 Start time in auction:', newAuction.startTime);
+        console.log('📝 End time in auction:', newAuction.endTime);
+        console.log('📝 Start time readable:', new Date(newAuction.startTime).toLocaleString());
+        console.log('📝 End time readable:', new Date(newAuction.endTime).toLocaleString());
 
         // Show summary of what will be saved
         let imageSummary = '';
@@ -714,7 +973,11 @@ function handleAuctionForm() {
         console.log('📋 Final auctions to save:', auctions);
 
         // Show final summary before saving
-        alert(`Auction "${title}" by ${artist} is being created!\n\nImage: ${imageSummary}\n\nStarting bid: ₹${startBidINR}\nDuration: ${durationMinutes} minutes`);
+        const startInfo = auctionStartDateRaw ?
+          `\nStarts: ${new Date(startTime).toLocaleString()}` :
+          '\nStarts: Immediately';
+
+        alert(`Auction "${title}" by ${artist} is being created!\n\nImage: ${imageSummary}\n\nStarting bid: ₹${startBidINR}\nDuration: ${durationMinutes} minutes${startInfo}`);
 
         // Save to JSONBin.io
         saveStoredAuctions(auctions).then(() => {
@@ -851,35 +1114,71 @@ function handleAuctionForm() {
 ====================================================== */
 
 function renderAuctions(allAuctions) {
+  const upcomingGrid = document.getElementById("upcoming-auctions");
   const activeGrid = document.getElementById("active-auctions");
   const endedGrid = document.getElementById("ended-auctions");
 
-  if (!activeGrid || !endedGrid) return;
+  if (!upcomingGrid || !activeGrid || !endedGrid) return;
 
+  upcomingGrid.innerHTML = "";
   activeGrid.innerHTML = "";
   endedGrid.innerHTML = "";
 
   const now = Date.now();
+  console.log('🎯 renderAuctions called with', allAuctions.length, 'auctions');
+  console.log('⏰ Current time (now):', new Date(now).toISOString());
 
+  const upcoming = [];
   const inProgress = [];
   const ended = [];
 
   allAuctions.forEach(auction => {
+    const startTime = Number(auction.startTime || 0);
     const endTime = Number(auction.endTime || 0);
-    const isEnded = endTime && now >= endTime;
 
-    if (isEnded) ended.push(auction);
-    else inProgress.push(auction);
+    let category = 'unknown';
+
+    if (endTime && now >= endTime) {
+      // Auction has ended
+      ended.push(auction);
+      category = 'ENDED';
+    } else if (startTime && now >= startTime) {
+      // Auction is currently active
+      inProgress.push(auction);
+      category = 'IN PROGRESS';
+    } else if (startTime && now < startTime) {
+      // Auction hasn't started yet
+      upcoming.push(auction);
+      category = 'UPCOMING';
+    } else {
+      // Fallback: assume active if no clear start time (for backward compatibility)
+      inProgress.push(auction);
+      category = 'IN PROGRESS (fallback)';
+    }
+
+    console.log(`🏷️ Auction "${auction.title}" (ID: ${auction.id}):`, {
+      startTime: startTime ? new Date(startTime).toISOString() : 'N/A',
+      endTime: endTime ? new Date(endTime).toISOString() : 'N/A',
+      currentTime: new Date(now).toISOString(),
+      category: category
+    });
   });
+
+  console.log(`📊 Categorization complete: ${upcoming.length} upcoming, ${inProgress.length} in progress, ${ended.length} ended`);
+
+  // Render upcoming auctions
+  upcoming.forEach(a =>
+    upcomingGrid.appendChild(createAuctionCard(a, false, 'upcoming'))
+  );
 
   // Render active auctions
   inProgress.forEach(a =>
-    activeGrid.appendChild(createAuctionCard(a, false))
+    activeGrid.appendChild(createAuctionCard(a, false, 'active'))
   );
 
   // Render ended auctions
   ended.forEach(a =>
-    endedGrid.appendChild(createAuctionCard(a, true))
+    endedGrid.appendChild(createAuctionCard(a, true, 'ended'))
   );
 
   // Update watchlist buttons after rendering
@@ -890,9 +1189,9 @@ function renderAuctions(allAuctions) {
    CREATE CARD
 ====================================================== */
 
-function createAuctionCard(auction, isEnded) {
+function createAuctionCard(auction, isEnded, auctionState = 'active') {
   const card = document.createElement("article");
-  card.className = "auction-card";
+  card.className = `auction-card auction-${auctionState}`;
 
   const imageDiv = document.createElement("div");
   imageDiv.className = "auction-image";
@@ -993,45 +1292,77 @@ function createAuctionCard(auction, isEnded) {
     return `${s}s left`;
   }
 
-  if (!isEnded) {
-    // Calculate total duration (we'll estimate based on typical auction lengths)
-    // For now, assume auctions are created with standard durations
+  function formatTimeUntil(targetTime) {
     const now = Date.now();
-    const remaining = auction.endTime - now;
-    const totalDuration = remaining; // We'll track from current point
+    const diff = targetTime - now;
 
-    const interval = setInterval(() => {
-      const currentNow = Date.now();
-      const currentRemaining = auction.endTime - currentNow;
+    if (diff <= 0) return "Starting now";
 
-      timerEl.textContent = formatRemaining(currentRemaining);
+    const totalSeconds = Math.floor(diff / 1000);
+    const days = Math.floor(totalSeconds / 86400);
+    const hours = Math.floor((totalSeconds % 86400) / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
 
-      // Update progress bar (starts full and decreases)
-      const progressPercent = Math.max(0, (currentRemaining / totalDuration) * 100);
-      progressBar.style.width = `${progressPercent}%`;
+    if (days > 0) return `in ${days}d ${hours}h`;
+    if (hours > 0) return `in ${hours}h ${minutes}m`;
+    return `in ${minutes}m`;
+  }
 
-      // Update progress bar color based on time remaining
-      progressContainer.className = 'auction-progress';
-      if (currentRemaining < 300000) { // Less than 5 minutes
-        progressContainer.classList.add('urgent');
-      } else if (currentRemaining < 1800000) { // Less than 30 minutes
-        progressContainer.classList.add('warning');
-      } else {
-        progressContainer.classList.add('normal');
-      }
+  if (!isEnded) {
+    const now = Date.now();
 
-      if (currentRemaining <= 0) {
-        clearInterval(interval);
+    if (auctionState === 'upcoming') {
+      // Show when auction starts
+      const startTime = auction.startTime;
+      const timeUntilStart = startTime - now;
+
+      if (timeUntilStart > 0) {
+        timerEl.textContent = `Starts ${formatTimeUntil(startTime)}`;
         progressBar.style.width = '0%';
-        progressContainer.classList.add('urgent');
-        loadStoredAuctions().then(renderAuctions); // move automatically
+        progressContainer.classList.add('normal');
+      } else {
+        // Should not happen, but fallback
+        timerEl.textContent = "Starting soon...";
       }
-    }, 1000);
+    } else {
+      // Active auction - show countdown
+      const remaining = auction.endTime - now;
+      const totalDuration = remaining; // We'll track from current point
 
-    // Initial progress
-    const initialProgress = Math.max(0, (remaining / totalDuration) * 100);
-    progressBar.style.width = `${initialProgress}%`;
+      const interval = setInterval(() => {
+        const currentNow = Date.now();
+        const currentRemaining = auction.endTime - currentNow;
+
+        timerEl.textContent = formatRemaining(currentRemaining);
+
+        // Update progress bar (starts full and decreases)
+        const progressPercent = Math.max(0, (currentRemaining / totalDuration) * 100);
+        progressBar.style.width = `${progressPercent}%`;
+
+        // Update progress bar color based on time remaining
+        progressContainer.className = 'auction-progress';
+        if (currentRemaining < 300000) { // Less than 5 minutes
+          progressContainer.classList.add('urgent');
+        } else if (currentRemaining < 1800000) { // Less than 30 minutes
+          progressContainer.classList.add('warning');
+        } else {
+          progressContainer.classList.add('normal');
+        }
+
+        if (currentRemaining <= 0) {
+          clearInterval(interval);
+          progressBar.style.width = '0%';
+          progressContainer.classList.add('urgent');
+          loadStoredAuctions().then(renderAuctions); // move automatically
+        }
+      }, 1000);
+
+      // Initial progress
+      const initialProgress = Math.max(0, (remaining / totalDuration) * 100);
+      progressBar.style.width = `${initialProgress}%`;
+    }
   } else {
+    timerEl.textContent = "Auction ended";
     progressBar.style.width = '0%';
     progressContainer.classList.add('urgent');
   }
@@ -1071,7 +1402,11 @@ function createAuctionCard(auction, isEnded) {
     btn.disabled = true;
     btn.textContent = "Auction ended";
     btn.style.opacity = "0.5";
+  } else if (auctionState === 'upcoming') {
+    // Don't show bid button for upcoming auctions
+    btn.style.display = 'none';
   } else {
+    // Only show bid button for active auctions
     btn.textContent = "Place Bid";
     btn.onclick = () =>
       openBidModal(
