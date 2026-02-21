@@ -6,6 +6,7 @@ const routes = {
   '/': 'home-page',
   '/auctions': 'auctions-page',
   '/submit': 'submit-page',
+  '/contact': 'contact-page', // Contact page
   '/about': 'home-page', // About section is in home page
   '/payment-success': 'payment-success-page'
 };
@@ -61,6 +62,11 @@ function navigateTo(path) {
     // Initialize auctions page after transition
     setTimeout(() => {
       handleAuctionsPage();
+    }, 100);
+  } else if (path === '/contact') {
+    // Initialize contact form after transition
+    setTimeout(() => {
+      initContactForm();
     }, 100);
   } else if (path === '/about') {
     // Scroll to about section
@@ -3296,6 +3302,252 @@ async function addBidWithNotification(auctionId, amount, bidderName, bidderEmail
 //     if (e.target === modal) closeBidModal();
 //   });
 // }
+
+// ======================================================
+// CONTACT FORM FUNCTIONS
+// ======================================================
+
+// Initialize contact form when navigating to contact page
+// Update navigateTo function to call this
+if (path === '/contact') {
+  setTimeout(() => {
+    initContactForm();
+  }, 100);
+}
+
+// Contact form initialization
+function initContactForm() {
+  const form = document.getElementById('contact-form');
+  if (!form) return;
+
+  console.log('Initializing contact form');
+
+  form.addEventListener('submit', async function(e) {
+    e.preventDefault();
+
+    if (!validateContactForm()) {
+      console.log('Contact form validation failed');
+      return;
+    }
+
+    const submitBtn = document.getElementById('contact-submit');
+    const btnText = submitBtn.querySelector('.btn-text');
+    const btnLoading = submitBtn.querySelector('.btn-loading');
+
+    // Show loading state
+    submitBtn.disabled = true;
+    btnText.style.display = 'none';
+    btnLoading.style.display = 'inline';
+
+    try {
+      const formData = new FormData(form);
+      const contactData = {
+        name: formData.get('name').trim(),
+        email: formData.get('email').trim(),
+        subject: formData.get('subject'),
+        message: formData.get('message').trim(),
+        timestamp: new Date().toISOString(),
+        userAgent: navigator.userAgent,
+        source: 'contact_form',
+        status: 'unread'
+      };
+
+      console.log('Submitting contact form:', contactData);
+
+      // Save to JSONBin.io
+      await saveContactToJSONBin(contactData);
+
+      console.log('Contact form submitted successfully');
+
+      // Show success message
+      form.style.display = 'none';
+      document.getElementById('contact-success').style.display = 'block';
+
+      // Track the event
+      trackContactEvent('submitted', { subject: contactData.subject });
+
+    } catch (error) {
+      console.error('Contact form submission error:', error);
+      alert('Sorry, there was an error sending your message. Please try again or contact us directly at hardiksingh850@gmail.com');
+    } finally {
+      // Reset loading state
+      submitBtn.disabled = false;
+      btnText.style.display = 'inline';
+      btnLoading.style.display = 'none';
+    }
+  });
+
+  // Real-time validation
+  form.addEventListener('input', function(e) {
+    validateContactField(e.target);
+  });
+
+  form.addEventListener('change', function(e) {
+    validateContactField(e.target);
+  });
+}
+
+// Contact form validation
+function validateContactForm() {
+  const fields = ['contact-name', 'contact-email', 'contact-subject', 'contact-message'];
+  let isValid = true;
+
+  fields.forEach(fieldId => {
+    const field = document.getElementById(fieldId);
+    if (!validateContactField(field)) {
+      isValid = false;
+    }
+  });
+
+  return isValid;
+}
+
+// Validate individual contact field
+function validateContactField(field) {
+  const value = field.value.trim();
+  const errorElement = document.getElementById(field.id + '-error');
+
+  if (!errorElement) return true;
+
+  // Clear previous errors
+  field.classList.remove('error');
+  errorElement.textContent = '';
+
+  // Required field validation
+  if (field.hasAttribute('required') && !value) {
+    field.classList.add('error');
+    errorElement.textContent = 'This field is required';
+    return false;
+  }
+
+  // Email validation
+  if (field.type === 'email' && value) {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(value)) {
+      field.classList.add('error');
+      errorElement.textContent = 'Please enter a valid email address';
+      return false;
+    }
+  }
+
+  // Message length validation
+  if (field.id === 'contact-message' && value && value.length < 10) {
+    field.classList.add('error');
+    errorElement.textContent = 'Please provide a more detailed message (at least 10 characters)';
+    return false;
+  }
+
+  return true;
+}
+
+// Reset contact form
+function resetContactForm() {
+  const form = document.getElementById('contact-form');
+  const success = document.getElementById('contact-success');
+
+  if (form) {
+    form.reset();
+    form.style.display = 'block';
+
+    // Clear validation errors
+    form.querySelectorAll('.error-message').forEach(el => el.textContent = '');
+    form.querySelectorAll('.error').forEach(el => el.classList.remove('error'));
+  }
+
+  if (success) {
+    success.style.display = 'none';
+  }
+}
+
+// Save contact to JSONBin.io
+async function saveContactToJSONBin(contactData) {
+  // Create a separate bin for contacts (you'll need to create this in JSONBin.io)
+  // For now, we'll use the same API endpoint pattern as auctions
+  // You'll need to create a new bin in JSONBin.io and update these values
+  const CONTACT_BIN_ID = 'your-contact-bin-id'; // Replace with your contact bin ID
+  const CONTACT_API_KEY = 'your-contact-api-key'; // Replace with your contact API key
+
+  // For demo purposes, we'll save to localStorage first
+  // In production, replace this with actual JSONBin.io calls
+
+  console.log('Saving contact to storage...');
+
+  // Get existing contacts from localStorage (temporary)
+  let contacts = [];
+  try {
+    const stored = localStorage.getItem('surrealbid_contacts');
+    if (stored) {
+      contacts = JSON.parse(stored);
+    }
+  } catch (error) {
+    console.warn('Could not load contacts from storage:', error);
+  }
+
+  // Add new contact
+  contacts.push(contactData);
+
+  // Save back to localStorage (temporary)
+  try {
+    localStorage.setItem('surrealbid_contacts', JSON.stringify(contacts));
+    console.log('Contact saved to localStorage (temporary)');
+  } catch (error) {
+    console.error('Could not save contact:', error);
+    throw error;
+  }
+
+  // TODO: Replace with actual JSONBin.io implementation when you create the bin
+  /*
+  try {
+    // First, try to get existing contacts
+    const getResponse = await fetch(`https://api.jsonbin.io/v3/b/${CONTACT_BIN_ID}`, {
+      method: 'GET',
+      headers: {
+        'X-Master-Key': CONTACT_API_KEY
+      }
+    });
+
+    let contacts = [];
+    if (getResponse.ok) {
+      const data = await getResponse.json();
+      contacts = data.record || [];
+    }
+
+    // Add new contact
+    contacts.push(contactData);
+
+    // Save back to JSONBin
+    const saveResponse = await fetch(`https://api.jsonbin.io/v3/b/${CONTACT_BIN_ID}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Master-Key': CONTACT_API_KEY
+      },
+      body: JSON.stringify(contacts)
+    });
+
+    if (!saveResponse.ok) {
+      throw new Error('Failed to save contact message');
+    }
+
+    console.log('Contact saved to JSONBin.io');
+  } catch (error) {
+    console.error('JSONBin.io contact save error:', error);
+    throw error;
+  }
+  */
+}
+
+// Track contact events
+function trackContactEvent(event, data) {
+  console.log(`Contact ${event}:`, data);
+  // Here you can integrate with analytics services like Plausible
+  // if (window.plausible) {
+  //   window.plausible('Contact Form', { props: { event, ...data } });
+  // }
+}
+
+// Make functions globally available
+window.resetContactForm = resetContactForm;
 
 // function closeBidModal() {
 //   const modal = document.getElementById("bid-modal");

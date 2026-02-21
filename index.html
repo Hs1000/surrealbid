@@ -20,7 +20,7 @@
       <a href="/" class="logo" onclick="navigateTo('/'); return false;">SurrealBid</a>
       <a href="/auctions" class="nav-link" onclick="navigateTo('/auctions'); return false;">Auctions</a>
       <a href="/about" class="nav-link" onclick="navigateTo('/about'); return false;">About</a>
-      <a href="mailto:hardiksingh850@gmail.com" class="nav-link">Contact</a>
+      <a href="/contact" class="nav-link" onclick="navigateTo('/contact'); return false;">Contact</a>
     </div>
 
     <div class="nav-right">
@@ -226,6 +226,85 @@
         <div style="margin-top: 30px;">
           <a href="/auctions" class="btn" onclick="navigateTo('/auctions'); return false;">Back to Auctions</a>
           <a href="/" class="btn" style="margin-left: 12px; background: rgba(255, 255, 255, 0.1);" onclick="navigateTo('/'); return false;">Go Home</a>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- CONTACT PAGE -->
+  <div id="contact-page" class="page">
+    <main class="content form-page">
+      <section class="form-card">
+        <h1 class="title">Contact Us</h1>
+        <p class="subtitle">
+          Have questions about SurrealBid? We'd love to hear from you.
+        </p>
+
+        <form id="contact-form" class="contact-form" novalidate>
+          <div class="form-row">
+            <label for="contact-name">Name *</label>
+            <input id="contact-name" name="name" type="text" required placeholder="Your full name" />
+            <span class="error-message" id="name-error"></span>
+          </div>
+
+          <div class="form-row">
+            <label for="contact-email">Email *</label>
+            <input id="contact-email" name="email" type="email" required placeholder="your.email@example.com" />
+            <span class="error-message" id="email-error"></span>
+          </div>
+
+          <div class="form-row">
+            <label for="contact-subject">Subject *</label>
+            <select id="contact-subject" name="subject" required>
+              <option value="">Select a topic</option>
+              <option value="general">General Inquiry</option>
+              <option value="artist">Artist Application</option>
+              <option value="technical">Technical Support</option>
+              <option value="billing">Billing Question</option>
+              <option value="partnership">Partnership</option>
+            </select>
+            <span class="error-message" id="subject-error"></span>
+          </div>
+
+          <div class="form-row">
+            <label for="contact-message">Message *</label>
+            <textarea id="contact-message" name="message" required placeholder="Tell us how we can help..." rows="5"></textarea>
+            <span class="error-message" id="message-error"></span>
+          </div>
+
+          <button type="submit" class="btn" id="contact-submit">
+            <span class="btn-text">Send Message</span>
+            <span class="btn-loading" style="display: none;">Sending...</span>
+          </button>
+        </form>
+
+        <!-- Success Message -->
+        <div id="contact-success" class="success-message" style="display: none;">
+          <div class="success-icon">✓</div>
+          <h3>Message Sent!</h3>
+          <p>Thank you for contacting us. We'll get back to you within 24 hours.</p>
+          <button class="btn" onclick="resetContactForm()">Send Another Message</button>
+        </div>
+
+        <!-- Alternative Contact Info -->
+        <div class="contact-info">
+          <h3>Other Ways to Reach Us</h3>
+          <div class="contact-methods">
+            <div class="contact-method">
+              <span class="contact-icon">📧</span>
+              <div>
+                <strong>Email</strong><br>
+                <a href="mailto:hardiksingh850@gmail.com">hardiksingh850@gmail.com</a>
+              </div>
+            </div>
+            <div class="contact-method">
+              <span class="contact-icon">💼</span>
+              <div>
+                <strong>Business Inquiries</strong><br>
+                <a href="mailto:hardiksingh850@gmail.com">hardiksingh850@gmail.com</a>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
     </main>
