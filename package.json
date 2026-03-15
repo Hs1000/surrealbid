@@ -4,7 +4,8 @@
     "description": "Frontend for SurrealBid",
     "main": "index.js",
     "scripts": {
-        "start": "lite-server"
+        "start": "lite-server",
+        "dev": "lite-server"
     },
     "devDependencies": {
         "lite-server": "^2.6.1"

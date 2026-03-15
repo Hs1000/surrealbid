@@ -21,7 +21,8 @@
       <a href="/auctions" class="nav-link" onclick="navigateTo('/auctions'); return false;">Auctions</a>
       <a href="/about" class="nav-link" onclick="navigateTo('/about'); return false;">About</a>
       <a href="/contact" class="nav-link" onclick="navigateTo('/contact'); return false;">Contact</a>
-    </div>
+        <a href="/artist-register" class="nav-link" onclick="navigateTo('/artist-register'); return false;">Join as Artist</a>
+      </div>
 
     <div class="nav-right">
       <button id="theme-toggle" class="theme-toggle" title="Toggle theme">
@@ -33,9 +34,9 @@
 
   <!-- HOME PAGE -->
   <div id="home-page" class="page active">
-    <div class="content">
-      <h1 class="title">SurrealBid</h1>
-      <p class="subtitle">A curated auction house for surreal, unusual & unconventional art.</p>
+  <div class="content">
+    <h1 class="title">SurrealBid</h1>
+    <p class="subtitle">A curated auction house for surreal, unusual & unconventional art.</p>
 
       <a class="btn" href="mailto:contact@surrealbid.com">Request an Invite</a>
 
@@ -162,17 +163,28 @@
         </p>
 
         <form id="auction-form" class="auction-form" novalidate>
-          <div class="form-row">
-            <label for="title">Artwork title</label>
-            <input id="title" name="title" type="text" required placeholder="Echoes of a Dream" />
-          </div>
+        <div class="form-row">
+          <label for="title">Artwork title</label>
+          <input id="title" name="title" type="text" required placeholder="Echoes of a Dream" />
+          <span class="error-message" id="title-error"></span>
+        </div>
 
-          <div class="form-row">
-            <label for="artist">Artist name</label>
-            <input id="artist" name="artist" type="text" required placeholder="Your name" />
-          </div>
+        <div class="form-row">
+          <label for="artist">Artist name</label>
+          <input id="artist" name="artist" type="text" required placeholder="Your name" />
+          <span class="error-message" id="artist-error"></span>
+        </div>
 
-          <div class="form-row">
+        <div class="form-row">
+          <label for="artistEmail">Email address *</label>
+          <input id="artistEmail" name="artistEmail" type="email" required placeholder="your.email@example.com" />
+          <p class="form-hint">
+            Required for verification. We'll send a confirmation link to publish your auction.
+          </p>
+          <span class="error-message" id="artistEmail-error"></span>
+        </div>
+
+        <div class="form-row">
             <label for="imageUrl">Artwork image</label>
             <div class="form-row-upload">
               <input id="imageUrl" name="imageUrl" type="url" placeholder="https://..." />
@@ -185,14 +197,16 @@
           </div>
 
           <div class="form-row-inline">
-            <div class="form-row">
-              <label for="startBid">Starting bid (INR)</label>
-              <input id="startBid" name="startBid" type="number" step="1" min="0" required placeholder="5000" />
-            </div>
-            <div class="form-row">
-              <label for="durationMinutes">Auction length (minutes)</label>
-              <input id="durationMinutes" name="durationMinutes" type="number" min="1" required placeholder="60" />
-            </div>
+          <div class="form-row">
+            <label for="startBid">Starting bid (INR)</label>
+            <input id="startBid" name="startBid" type="number" step="1" min="100" required placeholder="5000" />
+            <span class="error-message" id="startBid-error"></span>
+          </div>
+          <div class="form-row">
+            <label for="durationMinutes">Auction length (minutes)</label>
+            <input id="durationMinutes" name="durationMinutes" type="number" min="1" required placeholder="60" />
+            <span class="error-message" id="durationMinutes-error"></span>
+          </div>
           </div>
 
           <div class="form-row">
@@ -205,6 +219,354 @@
 
           <button type="submit" class="btn">Create auction</button>
         </form>
+
+        <!-- Artist Verification Notice -->
+        <div id="artist-verification-notice" class="verification-notice" style="display: none;">
+          <h3>🎨 Artist Verification Required</h3>
+          <p id="verification-message">To create auctions on SurrealBid, you need to register as a verified artist.</p>
+          <div id="verification-actions">
+            <a href="/artist-register" class="btn" onclick="navigateTo('/artist-register'); return false;">Register as Artist</a>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- ADMIN PANEL PAGE (no nav link – access via /admin URL + password only) -->
+  <div id="admin-page" class="page">
+    <main class="content">
+      <section id="admin-dashboard-wrap" class="auctions-section admin-dashboard-section" style="display: none;">
+        <header class="admin-panel-header">
+          <div class="admin-panel-header-inner">
+            <div class="admin-panel-title">
+              <h1 class="admin-panel-title-text">Admin</h1>
+              <p class="admin-panel-subtitle">Review registrations, reports, and platform data</p>
+            </div>
+            <button type="button" class="admin-logout-btn" onclick="logoutAdmin()">Log out</button>
+          </div>
+        </header>
+
+        <div id="admin-content">
+          <div class="admin-tabs">
+            <button class="admin-tab active" onclick="showAdminTab('artists')">Artist reviews</button>
+            <button class="admin-tab" onclick="showAdminTab('reports')">Reports</button>
+            <button class="admin-tab" onclick="showAdminTab('auctions')">Auctions</button>
+            <button class="admin-tab" onclick="showAdminTab('stats')">Statistics</button>
+          </div>
+
+          <div id="admin-artists" class="admin-tab-content">
+            <div class="admin-section-head">
+              <h2 class="admin-section-title">Pending artist registrations</h2>
+              <p class="admin-section-desc">Approve or reject new artist applications.</p>
+            </div>
+            <div id="pending-artists" class="admin-artists-list"></div>
+            <div id="no-pending-artists" class="admin-empty-state" style="display: none;">
+              <span class="admin-empty-icon">👨‍🎨</span>
+              <p class="admin-empty-title">No pending registrations</p>
+              <p class="admin-empty-text">New applications will appear here for review.</p>
+            </div>
+          </div>
+
+          <!-- Reports Tab -->
+          <div id="admin-reports" class="admin-tab-content" style="display: none;">
+            <h3>Artwork Reports</h3>
+            <div id="artwork-reports"></div>
+            <div id="no-reports" style="display: none; text-align: center; padding: 40px; color: var(--text-secondary);">
+              No reports submitted yet.
+            </div>
+          </div>
+
+          <!-- Auctions Tab -->
+          <div id="admin-auctions" class="admin-tab-content" style="display: none;">
+            <h3>Auction Management</h3>
+            <div id="admin-auctions-list"></div>
+            <div id="no-auctions" style="display: none; text-align: center; padding: 40px; color: var(--text-secondary);">
+              No auctions found.
+            </div>
+          </div>
+
+          <!-- Statistics Tab -->
+          <div id="admin-stats" class="admin-tab-content" style="display: none;">
+            <h3>Platform Statistics</h3>
+            <div class="stats-grid">
+              <div class="stat-card">
+                <h4>Total Artists</h4>
+                <div class="stat-number" id="total-artists">0</div>
+              </div>
+              <div class="stat-card">
+                <h4>Verified Artists</h4>
+                <div class="stat-number" id="verified-artists">0</div>
+              </div>
+              <div class="stat-card">
+                <h4>Pending Reviews</h4>
+                <div class="stat-number" id="stat-pending-artists">0</div>
+              </div>
+              <div class="stat-card">
+                <h4>Rejected Artists</h4>
+                <div class="stat-number" id="rejected-artists">0</div>
+              </div>
+              <div class="stat-card">
+                <h4>Active Auctions</h4>
+                <div class="stat-number" id="active-auctions">0</div>
+              </div>
+              <div class="stat-card">
+                <h4>Reports Submitted</h4>
+                <div class="stat-number" id="total-reports">0</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Data Management Tab -->
+          <div id="admin-data" class="admin-tab-content" style="display: none;">
+            <div class="tab-header">
+              <h3>💾 Data Management System</h3>
+              <div class="tab-actions">
+                <button class="btn-sm" onclick="refreshAdminData()">🔄 Refresh Stats</button>
+              </div>
+            </div>
+
+            <div class="data-management-section">
+              <div class="data-overview">
+                <h4>Data Overview</h4>
+                <div class="data-stats">
+                  <div class="data-stat">
+                    <span class="data-label">Storage Used:</span>
+                    <span class="data-value" id="storage-used">0 KB</span>
+                  </div>
+                  <div class="data-stat">
+                    <span class="data-label">Last Backup:</span>
+                    <span class="data-value" id="last-backup">Never</span>
+                  </div>
+                  <div class="data-stat">
+                    <span class="data-label">Data Version:</span>
+                    <span class="data-value" id="data-version">2.0</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="data-actions">
+                <h4>Data Operations</h4>
+                <div class="action-buttons">
+                  <button class="btn" onclick="exportArtistsData()">
+                    👨‍🎨 Export Artists Data
+                  </button>
+                  <button class="btn" onclick="exportData()">
+                    📊 Export All Data
+                  </button>
+                  <button class="btn-warning" onclick="importData()">
+                    📥 Import Data
+                  </button>
+                  <button class="btn-danger" onclick="clearAllData()">
+                    🗑️ Clear All Data
+                  </button>
+                </div>
+              </div>
+
+              <div class="data-info">
+                <h4>💡 Data Management Tips</h4>
+                <ul>
+                  <li><strong>Export regularly:</strong> Backup your data before making major changes</li>
+                  <li><strong>Import carefully:</strong> Importing will replace all current data</li>
+                  <li><strong>Clear data:</strong> This action cannot be undone</li>
+                  <li><strong>Version control:</strong> Data is automatically versioned</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- ADMIN PANEL PAGE -->
+  <div id="admin-page" class="page" style="display: none;">
+    <main class="content">
+      <section class="admin-section">
+        <header class="admin-header">
+          <div class="admin-header-content">
+            <h1 class="title">🎛️ Admin Dashboard</h1>
+            <p class="subtitle">Manage artist registrations, reports, and platform content</p>
+          </div>
+          <div class="admin-actions">
+            <button class="btn-outline" onclick="exportArtistsData()">👨‍🎨 Export Artists</button>
+            <button class="btn-outline" onclick="exportData()">📊 Export All Data</button>
+            <button class="btn-outline" onclick="importData()">📥 Import Data</button>
+            <button class="btn-secondary" onclick="adminLogout()">🚪 Logout</button>
+          </div>
+        </header>
+
+        <!-- Quick Stats Bar -->
+        <div class="admin-stats-bar">
+          <div class="stat-item">
+            <div class="stat-value" id="quick-artists">0</div>
+            <div class="stat-label">Total Artists</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value" id="quick-pending">0</div>
+            <div class="stat-label">Pending Reviews</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value" id="quick-reports">0</div>
+            <div class="stat-label">Active Reports</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value" id="quick-auctions">0</div>
+            <div class="stat-label">Live Auctions</div>
+          </div>
+        </div>
+
+        <div id="admin-content">
+          <!-- Navigation tabs -->
+          <div class="admin-tabs">
+            <button class="admin-tab active" onclick="showAdminTab('artists')">
+              👨‍🎨 Artist Reviews <span class="tab-count" id="artists-count">0</span>
+            </button>
+            <button class="admin-tab" onclick="showAdminTab('reports')">
+              🚨 Reports <span class="tab-count" id="reports-count">0</span>
+            </button>
+            <button class="admin-tab" onclick="showAdminTab('auctions')">
+              🎯 Auctions <span class="tab-count" id="auctions-count">0</span>
+            </button>
+            <button class="admin-tab" onclick="showAdminTab('stats')">
+              📊 Statistics
+            </button>
+            <button class="admin-tab" onclick="showAdminTab('data')">
+              💾 Data Management
+            </button>
+          </div>
+
+          <!-- Artist Reviews Tab -->
+          <div id="admin-artists" class="admin-tab-content">
+            <div class="tab-header">
+              <h3>🎨 Pending Artist Registrations</h3>
+              <div class="tab-actions">
+                <button class="btn-sm" onclick="loadPendingArtists(); updateTabCounts(); showNotification('🔄 Artist list refreshed!', 'info');">🔄 Refresh</button>
+                <button class="btn-sm" onclick="clearAllArtists()" style="background: #ef4444; color: white;">🗑️ Clear All</button>
+              </div>
+            </div>
+            <div id="pending-artists"></div>
+            <div id="no-pending-artists" class="empty-state">
+              <div class="empty-icon">🎨</div>
+              <h4>No pending artist registrations</h4>
+              <p>All artists have been reviewed!</p>
+            </div>
+          </div>
+
+          <!-- Reports Tab -->
+          <div id="admin-reports" class="admin-tab-content" style="display: none;">
+            <div class="tab-header">
+              <h3>🚨 Artwork Reports</h3>
+              <div class="tab-actions">
+                <select id="report-filter" onchange="filterReports(this.value)">
+                  <option value="all">All Reports</option>
+                  <option value="pending">Pending</option>
+                  <option value="investigating">Investigating</option>
+                  <option value="resolved">Resolved</option>
+                </select>
+                <button class="btn-sm" onclick="refreshAdminData()">🔄 Refresh</button>
+              </div>
+            </div>
+            <div id="artwork-reports"></div>
+            <div id="no-reports" class="empty-state">
+              <div class="empty-icon">✅</div>
+              <h4>No reports submitted yet</h4>
+              <p>The community is staying safe!</p>
+            </div>
+          </div>
+
+          <!-- Auctions Tab -->
+          <div id="admin-auctions" class="admin-tab-content" style="display: none;">
+            <div class="tab-header">
+              <h3>🎯 Auction Management</h3>
+              <div class="tab-actions">
+                <button class="btn-sm" onclick="refreshAdminData()">🔄 Refresh</button>
+              </div>
+            </div>
+            <div id="admin-auctions-list"></div>
+            <div id="no-auctions" class="empty-state">
+              <div class="empty-icon">🎯</div>
+              <h4>No auctions found</h4>
+              <p>Artists haven't created any auctions yet.</p>
+            </div>
+          </div>
+
+          <!-- Statistics Tab -->
+          <div id="admin-stats" class="admin-tab-content" style="display: none;">
+            <div class="tab-header">
+              <h3>📊 Platform Analytics</h3>
+              <div class="tab-actions">
+                <button class="btn-sm" onclick="generateReport()">📈 Generate Report</button>
+              </div>
+            </div>
+            <div class="detailed-stats">
+              <div class="stats-section">
+                <h4>👥 User Statistics</h4>
+                <div class="stats-grid">
+                  <div class="stat-card">
+                    <h5>Total Artists</h5>
+                    <div class="stat-number" id="total-artists">0</div>
+                  </div>
+                  <div class="stat-card">
+                    <h5>Email Verified</h5>
+                    <div class="stat-number" id="verified-artists">0</div>
+                  </div>
+                  <div class="stat-card">
+                    <h5>Portfolio Approved</h5>
+                    <div class="stat-number" id="approved-artists">0</div>
+                  </div>
+                  <div class="stat-card">
+                    <h5>Rejected Artists</h5>
+                    <div class="stat-number" id="rejected-artists">0</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="stats-section">
+                <h4>🎯 Auction Statistics</h4>
+                <div class="stats-grid">
+                  <div class="stat-card">
+                    <h5>Total Auctions</h5>
+                    <div class="stat-number" id="total-auctions">0</div>
+                  </div>
+                  <div class="stat-card">
+                    <h5>Active Auctions</h5>
+                    <div class="stat-number" id="active-auctions">0</div>
+                  </div>
+                  <div class="stat-card">
+                    <h5>Ended Auctions</h5>
+                    <div class="stat-number" id="ended-auctions">0</div>
+                  </div>
+                  <div class="stat-card">
+                    <h5>Pending Auctions</h5>
+                    <div class="stat-number" id="pending-auctions">0</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="stats-section">
+                <h4>🚨 Report Statistics</h4>
+                <div class="stats-grid">
+                  <div class="stat-card">
+                    <h5>Total Reports</h5>
+                    <div class="stat-number" id="total-reports">0</div>
+                  </div>
+                  <div class="stat-card">
+                    <h5>Pending Reports</h5>
+                    <div class="stat-number" id="pending-reports">0</div>
+                  </div>
+                  <div class="stat-card">
+                    <h5>Resolved Reports</h5>
+                    <div class="stat-number" id="resolved-reports">0</div>
+                  </div>
+                  <div class="stat-card">
+                    <h5>Dismissed Reports</h5>
+                    <div class="stat-number" id="dismissed-reports">0</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </section>
     </main>
   </div>
@@ -310,6 +672,301 @@
     </main>
   </div>
 
+  <!-- VERIFICATION PAGE -->
+  <div id="verification-page" class="page">
+    <main class="content form-page">
+      <section class="form-card">
+        <div id="verification-loading" class="verification-status">
+          <div class="loading-spinner"></div>
+          <h2>Verifying Your Email...</h2>
+          <p>Please wait while we verify your email address.</p>
+        </div>
+
+        <div id="verification-success" class="verification-status" style="display: none;">
+          <div class="success-icon">✅</div>
+          <h2>Email Verified!</h2>
+          <p>Your verification was successful.</p>
+          <a href="/auctions" class="btn" onclick="navigateTo('auctions'); return false;">Continue</a>
+        </div>
+
+        <div id="verification-error" class="verification-status" style="display: none;">
+          <div class="error-icon">❌</div>
+          <h2>Verification Failed</h2>
+          <p>The verification link is invalid or has expired. Please try again.</p>
+          <a href="/submit" class="btn" onclick="navigateTo('submit'); return false;">Try Again</a>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- ARTIST REGISTRATION PAGE -->
+  <div id="artist-register-page" class="page">
+    <main class="content form-page">
+      <section class="form-card">
+        <h1 class="title">Join SurrealBid as an Artist</h1>
+        <p class="subtitle">
+          Create your artist profile and start showcasing your surreal artwork to collectors worldwide.
+        </p>
+
+        <!-- Step Indicator -->
+        <div class="step-indicator">
+          <div class="step active" id="step-indicator-1">
+            <div class="step-circle active">1</div>
+            <div class="step-label">Basic Info</div>
+          </div>
+          <div class="step" id="step-indicator-2">
+            <div class="step-circle inactive">2</div>
+            <div class="step-label">Artistic Profile</div>
+          </div>
+          <div class="step" id="step-indicator-3">
+            <div class="step-circle inactive">3</div>
+            <div class="step-label">Identity Verification</div>
+          </div>
+          <div class="step" id="step-indicator-4">
+            <div class="step-circle inactive">4</div>
+            <div class="step-label">Portfolio</div>
+          </div>
+        </div>
+
+        <div id="artist-registration-form">
+          <!-- Step 1: Basic Information -->
+          <div class="registration-step" id="step-basic">
+            <h2>Step 1: Basic Information</h2>
+            <div class="form-row">
+              <label for="artist-fullname">Full Name *</label>
+              <input id="artist-fullname" name="fullname" type="text" placeholder="Your full legal name" />
+              <span class="error-message" id="fullname-error"></span>
+            </div>
+
+            <div class="form-row">
+              <label for="artist-email">Email Address *</label>
+              <input id="artist-email" name="email" type="email" placeholder="your.email@example.com" />
+              <p class="form-hint">We'll send a verification link to confirm your email</p>
+              <span class="error-message" id="email-error"></span>
+            </div>
+
+            <div class="form-row">
+              <label for="artist-phone">Phone Number</label>
+              <input id="artist-phone" name="phone" type="tel" placeholder="+1 (555) 123-4567" />
+              <span class="error-message" id="phone-error"></span>
+            </div>
+
+            <div class="form-row">
+              <label for="artist-location">Location *</label>
+              <input id="artist-location" name="location" type="text" placeholder="City, Country" />
+              <span class="error-message" id="location-error"></span>
+            </div>
+
+            <div class="form-row">
+              <label for="artist-profile-photo">Profile Photo *</label>
+              <div class="profile-photo-upload">
+                <div class="photo-upload-area" id="profile-photo-area" onclick="document.getElementById('artist-profile-photo').click()">
+                  <div class="photo-placeholder">
+                    <div class="photo-icon">📸</div>
+                    <div class="photo-text">Click to upload profile photo</div>
+                    <div class="photo-hint">JPG, PNG up to 5MB</div>
+                  </div>
+                  <img id="profile-photo-preview" class="photo-preview" style="display: none;" alt="Profile preview" />
+                </div>
+                <input type="file" id="artist-profile-photo" name="profilePhoto" accept="image/*" style="display: none;" onchange="handleProfilePhotoUpload(event)" />
+                <button type="button" class="btn-sm" onclick="document.getElementById('artist-profile-photo').click()">Choose Photo</button>
+                <button type="button" class="btn-secondary btn-sm" onclick="removeProfilePhoto()" id="remove-photo-btn" style="display: none;">Remove</button>
+              </div>
+              <p class="form-hint">A clear headshot or artistic self-portrait helps build trust with collectors</p>
+              <span class="error-message" id="photo-error"></span>
+            </div>
+
+            <button type="button" class="btn" onclick="if(typeof nextRegistrationStep === 'function') { nextRegistrationStep(); } else { alert('Function not loaded yet. Please wait.'); }">Next: Artistic Profile</button>
+            <button type="button" class="btn-secondary" onclick="console.log('Test button clicked'); alert('Button works! Current step: ' + (typeof currentRegistrationStep !== 'undefined' ? currentRegistrationStep : 'undefined'));" style="margin-left: 10px;">Test Button</button>
+          </div>
+
+          <!-- Step 2: Artistic Profile -->
+          <div class="registration-step" id="step-artistic" style="display: none;">
+            <h2>Step 2: Your Artistic Profile</h2>
+            <div class="form-row">
+              <label for="artist-bio">Artist Bio *</label>
+              <textarea id="artist-bio" name="bio" required placeholder="Tell us about yourself, your artistic journey, and what inspires you..." rows="6"></textarea>
+              <p class="form-hint">Minimum 100 words. Share your story, influences, and artistic philosophy.</p>
+              <span class="error-message" id="bio-error"></span>
+            </div>
+
+            <div class="form-row">
+              <label for="artist-style">Artistic Style *</label>
+              <select id="artist-style" name="style" required multiple size="4">
+                <option value="surrealism">Surrealism</option>
+                <option value="abstract">Abstract</option>
+                <option value="expressionism">Expressionism</option>
+                <option value="fantasy">Fantasy</option>
+                <option value="dark-art">Dark Art</option>
+                <option value="psychedelic">Psychedelic</option>
+                <option value="symbolism">Symbolism</option>
+                <option value="dreamlike">Dreamlike</option>
+                <option value="other">Other</option>
+              </select>
+              <p class="form-hint">Select all that apply (hold Ctrl/Cmd to select multiple)</p>
+              <span class="error-message" id="style-error"></span>
+            </div>
+
+            <div class="form-row">
+              <label for="artist-experience">Years of Experience *</label>
+              <select id="artist-experience" name="experience" required>
+                <option value="">Select experience level</option>
+                <option value="beginner">Beginner (0-2 years)</option>
+                <option value="intermediate">Intermediate (3-5 years)</option>
+                <option value="experienced">Experienced (6-10 years)</option>
+                <option value="professional">Professional (10+ years)</option>
+                <option value="master">Master Artist (20+ years)</option>
+              </select>
+              <span class="error-message" id="experience-error"></span>
+            </div>
+
+            <div class="form-row">
+              <label for="artist-education">Art Education</label>
+              <input id="artist-education" name="education" type="text" placeholder="School of Fine Arts, Self-taught, etc." />
+            </div>
+
+            <div class="form-row">
+              <label for="artist-awards">Awards & Recognition</label>
+              <textarea id="artist-awards" name="awards" placeholder="Any awards, exhibitions, or recognition you've received..." rows="3"></textarea>
+            </div>
+
+            <div class="form-row">
+              <label for="artist-exhibitions">Past Exhibitions</label>
+              <textarea id="artist-exhibitions" name="exhibitions" placeholder="Galleries, museums, or online exhibitions you've participated in..." rows="3"></textarea>
+            </div>
+
+            <div class="button-group">
+              <button type="button" class="btn-secondary" onclick="if(typeof prevRegistrationStep === 'function') { prevRegistrationStep(); } else { alert('Function not loaded yet. Please wait.'); }">Back</button>
+              <button type="button" class="btn" onclick="if(typeof nextRegistrationStep === 'function') { nextRegistrationStep(); } else { alert('Function not loaded yet. Please wait.'); }">Next: Portfolio</button>
+            </div>
+          </div>
+
+          <!-- Step 3: Identity Verification -->
+          <div class="registration-step" id="step-identity" style="display: none;">
+            <h2>Step 3: Identity Verification</h2>
+            <p class="subtitle">Help us verify your identity as an artist to protect against art theft and ensure authenticity.</p>
+
+            <div class="verification-notice" style="margin-bottom: 20px; padding: 15px; background: #f0f9ff; border: 1px solid #0ea5e9; border-radius: 8px;">
+              <h4 style="color: #0ea5e9; margin: 0 0 10px 0;">🔒 Why We Need This</h4>
+              <p style="margin: 0; font-size: 14px; color: #374151;">To protect artists and collectors, we verify identities before approving portfolios. This prevents art theft and ensures authenticity.</p>
+            </div>
+
+            <div class="form-row">
+              <label for="artist-website">Personal Website/Portfolio</label>
+              <input id="artist-website" name="website" type="url" placeholder="https://yourartwebsite.com" />
+              <p class="form-hint">Link to your online portfolio, Instagram, or art website</p>
+            </div>
+
+            <div class="form-row">
+              <label for="artist-instagram">Instagram Handle</label>
+              <input id="artist-instagram" name="instagram" type="text" placeholder="@yourhandle or full URL" />
+              <p class="form-hint">Your Instagram profile showing your artwork</p>
+            </div>
+
+            <div class="form-row">
+              <label for="artist-social">Other Social Media/Art Platforms</label>
+              <input id="artist-social" name="social" type="text" placeholder="Behance, LinkedIn, Twitter, DeviantArt, etc." />
+            </div>
+
+            <div class="form-row">
+              <label for="artist-exhibitions">Past Exhibitions/Awards</label>
+              <textarea id="artist-exhibitions" name="exhibitions" placeholder="List any art shows, exhibitions, awards, or publications you've participated in..." rows="4"></textarea>
+              <p class="form-hint">This helps us verify your artistic background</p>
+            </div>
+
+            <div class="form-row">
+              <input type="checkbox" id="ownership-declaration" name="ownershipDeclaration" required style="width: auto; margin-right: 10px;" />
+              <label for="ownership-declaration" style="display: inline; font-weight: normal;">
+                I certify that I am the original creator of all artwork I will upload to SurrealBid and have full rights to sell/license it. I understand that art theft will result in immediate account suspension.
+              </label>
+              <span class="error-message" id="ownership-error"></span>
+            </div>
+
+            <div class="form-row">
+              <input type="checkbox" id="identity-consent" name="identityConsent" required style="width: auto; margin-right: 10px;" />
+              <label for="identity-consent" style="display: inline; font-weight: normal;">
+                I consent to identity verification and understand my portfolio will be reviewed before auction privileges are granted.
+              </label>
+              <span class="error-message" id="consent-error"></span>
+            </div>
+
+            <div class="button-group">
+              <button type="button" class="btn-secondary" onclick="if(typeof prevRegistrationStep === 'function') { prevRegistrationStep(); } else { alert('Function not loaded yet. Please wait.'); }">Back</button>
+              <button type="button" class="btn" onclick="if(typeof nextRegistrationStep === 'function') { nextRegistrationStep(); } else { alert('Function not loaded yet. Please wait.'); }">Next: Portfolio</button>
+            </div>
+          </div>
+
+          <!-- Step 4: Portfolio -->
+          <div class="registration-step" id="step-portfolio" style="display: none;">
+            <h2>Step 4: Your Portfolio</h2>
+            <p class="subtitle">Showcase your best surreal artwork. Upload 1 representative piece.</p>
+
+            <div class="portfolio-upload">
+              <div class="portfolio-grid" id="portfolio-grid">
+                <!-- Portfolio images will be added here -->
+              </div>
+
+              <div class="upload-controls">
+                <input type="file" id="portfolio-file-input" accept="image/*" multiple style="display: none;" />
+                <button type="button" class="btn-secondary" onclick="document.getElementById('portfolio-file-input').click()">
+                  📁 Add Images
+                </button>
+                <p class="form-hint">Upload high-quality images (JPG, PNG) - Max 10MB each</p>
+              </div>
+            </div>
+
+            <div class="form-row">
+              <label for="artist-website">Personal Website</label>
+              <input id="artist-website" name="website" type="url" placeholder="https://yourportfolio.com" />
+            </div>
+
+            <div class="form-row">
+              <label for="artist-instagram">Instagram</label>
+              <input id="artist-instagram" name="instagram" type="text" placeholder="@yourhandle or full URL" />
+            </div>
+
+            <div class="form-row">
+              <label for="artist-social">Other Social Media</label>
+              <input id="artist-social" name="social" type="text" placeholder="Behance, LinkedIn, Twitter, etc." />
+            </div>
+
+            <div class="portfolio-requirements">
+              <h3>Portfolio Requirements:</h3>
+              <ul>
+                <li>✅ One representative surreal artwork</li>
+                <li>✅ High resolution (minimum 1000x1000px recommended)</li>
+                <li>✅ Recent work showcasing your style</li>
+                <li>✅ Clear, well-lit photograph</li>
+              </ul>
+            </div>
+
+            <div class="button-group">
+              <button type="button" class="btn-secondary" onclick="if(typeof prevRegistrationStep === 'function') { prevRegistrationStep(); } else { alert('Function not loaded yet. Please wait.'); }">Back</button>
+              <button type="button" class="btn" onclick="if(typeof submitArtistRegistration === 'function') { submitArtistRegistration(); } else { alert('Function not loaded yet. Please wait.'); }">Submit for Review</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Success Message -->
+        <div id="artist-success" class="success-message" style="display: none;">
+          <div class="success-icon">🎨</div>
+          <h3>Welcome to SurrealBid!</h3>
+          <p>Your artist profile has been submitted successfully!</p>
+          <div class="verification-notice">
+            <h4>What happens next?</h4>
+            <ol>
+              <li>A verification link will appear for your email</li>
+              <li>Click the verification link to verify your account</li>
+              <li>You'll be redirected to confirm your verification</li>
+              <li>Once verified, you can start creating auctions!</li>
+            </ol>
+          </div>
+          <button class="btn" onclick="navigateTo('/auctions')">Browse Auctions</button>
+        </div>
+      </section>
+    </main>
+  </div>
+
   <!-- FOOTER -->
   <footer>
     © 2026 SurrealBid. All rights reserved.
@@ -338,6 +995,7 @@
       <button class="lightbox-nav lightbox-next" onclick="navigateLightbox(1)">&#10095;</button>
     </div>
   </div>
+
 
   <script src="js/script.js"></script>
 </body>
