@@ -270,7 +270,7 @@ function openAuthDialog(mode = 'signin', { reason = '', onSuccess } = {}) {
     });
   }
 
-  $('[data-mode]', body).forEach(btn => btn.addEventListener('click', () => openAuthDialog(btn.dataset.mode, { reason, onSuccess })));
+  $$('[data-mode]', body).forEach(btn => btn.addEventListener('click', () => openAuthDialog(btn.dataset.mode, { reason, onSuccess })));
 
   $('form', body).addEventListener('submit', async e => {
     e.preventDefault();
