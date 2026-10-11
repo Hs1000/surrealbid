@@ -4,3 +4,9 @@ npm-debug.log
 dist/
 build/
 .env
+
+# Uploaded images
+uploads/
+
+# Local MongoDB data for development
+.mongo-data/

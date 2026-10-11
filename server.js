@@ -1,371 +1,134 @@
-const express = require('express');
-const mongoose = require('mongoose');
-const cors = require('cors');
-require('dotenv').config();
+const path = require("path");
+const express = require("express");
+const mongoose = require("mongoose");
+const cors = require("cors");
+const helmet = require("helmet");
+const rateLimit = require("express-rate-limit");
+
+const config = require("./lib/config");
+const { captureError } = require("./lib/monitoring");
+const { HttpError, sendOk } = require("./lib/http");
+const { startAuctionCloser } = require("./lib/auctionCloser");
+
+const authRoutes = require("./routes/auth");
+const artistRoutes = require("./routes/artists");
+const auctionRoutes = require("./routes/auctions");
+const adminRoutes = require("./routes/admin");
+const publicRoutes = require("./routes/public");
+const payments = require("./routes/payments");
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+app.disable("x-powered-by");
+if (config.trustProxy) app.set("trust proxy", config.trustProxy);
 
-// Middleware
-app.use(cors());
-app.use(express.json({ limit: '50mb' })); // For handling large base64 images
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+// ---------------- SECURITY HEADERS ----------------
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      useDefaults: true,
+      directives: {
+        "script-src": ["'self'", "https://checkout.razorpay.com", "https://accounts.google.com/gsi/client"],
+        // The markup uses inline onclick handlers.
+        "script-src-attr": ["'unsafe-inline'"],
+        "style-src": ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://accounts.google.com/gsi/style"],
+        "font-src": ["'self'", "https://fonts.gstatic.com"],
+        "img-src": ["'self'", "data:", "blob:", "https:"],
+        "connect-src": ["'self'", "https://accounts.google.com/gsi/", "https://api.exchangerate-api.com", "https://api.razorpay.com", "https://lumberjack.razorpay.com"],
+        "frame-src": ["https://api.razorpay.com", "https://checkout.razorpay.com", "https://accounts.google.com/gsi/"],
+        "upgrade-insecure-requests": config.isProduction ? [] : null,
+      },
+    },
+    strictTransportSecurity: config.isProduction,
+    // Google sign-in and Razorpay open popups that must be able to report back to this page.
+    crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
+  })
+);
 
-// MongoDB connection
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/surrealbid', {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
-.then(() => console.log('✅ Connected to MongoDB'))
-.catch(err => console.error('❌ MongoDB connection error:', err));
+// Same-origin by default; list other origins in ALLOWED_ORIGINS if the API is used from elsewhere.
+if (config.allowedOrigins.length) {
+  app.use("/api", cors({ origin: config.allowedOrigins }));
+}
 
-// Artist Schema
-const artistSchema = new mongoose.Schema({
-  basicInfo: {
-    artistId: { type: String, required: true, unique: true },
-    fullName: { type: String, required: true },
-    email: { type: String, required: true, unique: true },
-    phone: { type: String },
-    location: { type: String, required: true },
-    profilePhoto: { type: String }, // Base64 encoded image
-    joinedDate: { type: Date, default: Date.now },
-    lastActive: { type: Date, default: Date.now }
-  },
-  artisticProfile: {
-    bio: { type: String, required: true },
-    artisticStyle: [{ type: String }],
-    yearsExperience: { type: String, required: true },
-    education: { type: String },
-    awards: { type: String },
-    exhibitions: { type: String }
-  },
-  portfolio: {
-    images: [{ type: String }], // Array of base64 encoded images
-    website: { type: String },
-    socialMedia: { type: String },
-    instagram: { type: String },
-    behance: { type: String },
-    linkedin: { type: String }
-  },
-  identityVerification: {
-    website: { type: String },
-    instagram: { type: String },
-    otherSocialMedia: { type: String },
-    exhibitions: { type: String },
-    ownershipDeclaration: { type: Boolean, default: false },
-    identityConsent: { type: Boolean, default: false }
-  },
-  verification: {
-    emailVerified: { type: Boolean, default: false },
-    portfolioSubmitted: { type: Boolean, default: false },
-    portfolioReviewed: { type: Boolean, default: false },
-    approved: { type: Boolean, default: null }, // null = pending, true = approved, false = rejected
-    approvedAt: { type: Date },
-    reviewedAt: { type: Date },
-    rejectedAt: { type: Date },
-    rejectionReason: { type: String },
-    verificationLevel: { type: String, default: 'none' } // none, basic, verified
-  },
-  adminNotes: {
-    reviewNotes: { type: String },
-    approvalNotes: { type: String },
-    rejectionNotes: { type: String }
-  },
-  createdAt: { type: Date, default: Date.now },
-  updatedAt: { type: Date, default: Date.now }
-});
-
-// Auction Schema
-const auctionSchema = new mongoose.Schema({
-  id: { type: String, required: true, unique: true },
-  title: { type: String, required: true },
-  artist: { type: String, required: true },
-  description: { type: String },
-  startingPrice: { type: Number, required: true },
-  currentBid: { type: Number, default: 0 },
-  reservePrice: { type: Number },
-  buyNowPrice: { type: Number },
-  startTime: { type: Date, required: true },
-  endTime: { type: Date, required: true },
-  status: { type: String, enum: ['draft', 'active', 'ended', 'cancelled'], default: 'draft' },
-  images: [{ type: String }], // Array of base64 encoded images
-  category: { type: String },
-  tags: [{ type: String }],
-  bids: [{
-    bidderId: { type: String },
-    bidderName: { type: String },
-    amount: { type: Number },
-    timestamp: { type: Date, default: Date.now },
-    status: { type: String, enum: ['active', 'outbid', 'won'], default: 'active' }
-  }],
-  winner: {
-    bidderId: { type: String },
-    bidderName: { type: String },
-    winningBid: { type: Number },
-    wonAt: { type: Date }
-  },
-  createdBy: { type: String }, // Artist ID who created it
-  createdAt: { type: Date, default: Date.now },
-  updatedAt: { type: Date, default: Date.now }
-});
-
-// Report Schema
-const reportSchema = new mongoose.Schema({
-  id: { type: String, required: true, unique: true },
-  reporterId: { type: String },
-  reporterName: { type: String },
-  auctionId: { type: String, required: true },
-  auctionTitle: { type: String },
-  reportType: { type: String, enum: ['copyright', 'inappropriate', 'spam', 'fake', 'other'], required: true },
-  description: { type: String, required: true },
-  evidence: [{ type: String }], // Array of base64 encoded images
-  status: { type: String, enum: ['pending', 'investigating', 'resolved', 'dismissed'], default: 'pending' },
-  priority: { type: String, enum: ['low', 'medium', 'high', 'urgent'], default: 'medium' },
-  assignedTo: { type: String },
-  resolution: { type: String },
-  resolvedAt: { type: Date },
-  resolvedBy: { type: String },
-  createdAt: { type: Date, default: Date.now },
-  updatedAt: { type: Date, default: Date.now }
-});
-
-// Models
-const Artist = mongoose.model('Artist', artistSchema);
-const Auction = mongoose.model('Auction', auctionSchema);
-const Report = mongoose.model('Report', reportSchema);
-
-// Routes
-
-// Health check
-app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'OK',
-    timestamp: new Date().toISOString(),
-    database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
+// ---------------- RATE LIMITS ----------------
+const limiter = (windowMinutes, limit, message) =>
+  rateLimit({
+    windowMs: windowMinutes * 60 * 1000,
+    limit,
+    standardHeaders: "draft-7",
+    legacyHeaders: false,
+    handler: (req, res) => res.status(429).json({ success: false, error: message }),
   });
+
+app.use("/api", limiter(1, 300, "Too many requests. Please slow down."));
+app.use(["/api/auth/login", "/api/auth/signup", "/api/auth/google", "/api/admin/login"], limiter(15, 20, "Too many sign-in attempts. Try again in a few minutes."));
+app.use(["/api/auth/forgot-password", "/api/auth/resend-verification"], limiter(60, 5, "Too many emails requested. Try again later."));
+app.use(["/api/reports", "/api/contact"], limiter(60, 10, "Too many submissions. Try again later."));
+app.use("/api/artists/apply", limiter(60, 5, "Too many applications. Try again later."));
+app.post("/api/auctions/:id/bids", limiter(1, 30, "You're bidding very quickly. Wait a moment and try again."));
+
+// ---------------- BODY PARSING ----------------
+// The webhook needs the raw body to check Razorpay's signature, so it's mounted before JSON parsing.
+app.post("/api/payments/webhook", express.raw({ type: "application/json", limit: "1mb" }), payments.webhook);
+
+// Larger limits only where images are uploaded.
+app.use("/api/artists/apply", express.json({ limit: "40mb" }));
+app.post("/api/auctions", express.json({ limit: "15mb" }));
+app.use(express.json({ limit: "100kb" }));
+
+// ---------------- API ----------------
+app.get("/api/health", (req, res) =>
+  sendOk(res, { status: "OK", database: mongoose.connection.readyState === 1 ? "connected" : "connecting" })
+);
+app.use("/api/auth", authRoutes);
+app.use("/api/artists", artistRoutes);
+app.use("/api/auctions", auctionRoutes);
+app.use("/api/payments", payments.router);
+app.use("/api/admin", adminRoutes);
+app.use("/api", publicRoutes);
+app.use("/api", (req, res, next) => next(new HttpError(404, "Not found.")));
+
+// ---------------- STATIC FRONTEND ----------------
+// Only these folders are public; server code, models, .env and node_modules are never served.
+const staticOptions = { index: false, maxAge: config.isProduction ? "1h" : 0 };
+app.use("/css", express.static(path.join(__dirname, "css"), staticOptions));
+app.use("/js", express.static(path.join(__dirname, "js"), staticOptions));
+app.use("/uploads", express.static(config.uploadDir, { ...staticOptions, maxAge: "30d", immutable: true }));
+
+app.get(/^\/(?!api\/|css\/|js\/|uploads\/).*/, (req, res) => {
+  res.sendFile(path.join(__dirname, "index.html"));
 });
 
-// Artist routes
-app.post('/api/artists', async (req, res) => {
-  try {
-    const artist = new Artist(req.body);
-    await artist.save();
-    console.log('✅ Artist saved to database:', artist.basicInfo.fullName);
-    res.status(201).json({ success: true, artist });
-  } catch (error) {
-    console.error('❌ Error saving artist:', error);
-    res.status(500).json({ success: false, error: error.message });
+// ---------------- ERRORS ----------------
+app.use((err, req, res, next) => {
+  if (res.headersSent) return next(err);
+
+  if (err instanceof HttpError) {
+    return res.status(err.status).json({ success: false, error: err.message });
   }
-});
-
-app.get('/api/artists', async (req, res) => {
-  try {
-    const artists = await Artist.find().sort({ createdAt: -1 });
-    res.json({ success: true, artists });
-  } catch (error) {
-    console.error('❌ Error fetching artists:', error);
-    res.status(500).json({ success: false, error: error.message });
+  if (err.type === "entity.too.large") {
+    return res.status(413).json({ success: false, error: "That upload is too large. Try smaller images." });
   }
-});
-
-app.get('/api/artists/:id', async (req, res) => {
-  try {
-    const artist = await Artist.findOne({ 'basicInfo.artistId': req.params.id });
-    if (!artist) {
-      return res.status(404).json({ success: false, error: 'Artist not found' });
-    }
-    res.json({ success: true, artist });
-  } catch (error) {
-    console.error('❌ Error fetching artist:', error);
-    res.status(500).json({ success: false, error: error.message });
+  if (err.type === "entity.parse.failed") {
+    return res.status(400).json({ success: false, error: "Invalid request." });
   }
-});
-
-app.put('/api/artists/:id', async (req, res) => {
-  try {
-    const artist = await Artist.findOneAndUpdate(
-      { 'basicInfo.artistId': req.params.id },
-      req.body,
-      { new: true, runValidators: true }
-    );
-    if (!artist) {
-      return res.status(404).json({ success: false, error: 'Artist not found' });
-    }
-    console.log('✅ Artist updated:', artist.basicInfo.fullName);
-    res.json({ success: true, artist });
-  } catch (error) {
-    console.error('❌ Error updating artist:', error);
-    res.status(500).json({ success: false, error: error.message });
+  if (err.name === "ValidationError") {
+    return res.status(400).json({ success: false, error: "Some fields are invalid." });
   }
+
+  captureError(err, { route: `${req.method} ${req.originalUrl}` });
+  res.status(500).json({ success: false, error: "Something went wrong on our side. Please try again." });
 });
 
-// Get pending artists for admin review
-app.get('/api/artists/pending', async (req, res) => {
-  try {
-    const pendingArtists = await Artist.find({
-      'verification.portfolioSubmitted': true,
-      'verification.portfolioReviewed': false,
-      'verification.approved': { $ne: false }
-    }).sort({ createdAt: -1 });
+process.on("unhandledRejection", (err) => captureError(err, { route: "unhandledRejection" }));
 
-    res.json({ success: true, artists: pendingArtists });
-  } catch (error) {
-    console.error('❌ Error fetching pending artists:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
+// ---------------- START ----------------
+mongoose
+  .connect(config.mongoUri)
+  .then(() => console.log("MongoDB connected"))
+  .catch((err) => console.error("MongoDB connection error:", err.message));
 
-// Approve artist
-app.post('/api/artists/:id/approve', async (req, res) => {
-  try {
-    const { notes } = req.body;
-    const artist = await Artist.findOneAndUpdate(
-      { 'basicInfo.artistId': req.params.id },
-      {
-        'verification.portfolioReviewed': true,
-        'verification.approved': true,
-        'verification.approvedAt': new Date(),
-        'verification.reviewedAt': new Date(),
-        'verification.verificationLevel': 'verified',
-        'adminNotes.approvalNotes': notes,
-        updatedAt: new Date()
-      },
-      { new: true }
-    );
+startAuctionCloser();
 
-    if (!artist) {
-      return res.status(404).json({ success: false, error: 'Artist not found' });
-    }
-
-    console.log('✅ Artist approved:', artist.basicInfo.fullName);
-    res.json({ success: true, artist });
-  } catch (error) {
-    console.error('❌ Error approving artist:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// Reject artist
-app.post('/api/artists/:id/reject', async (req, res) => {
-  try {
-    const { reason, notes } = req.body;
-    const artist = await Artist.findOneAndUpdate(
-      { 'basicInfo.artistId': req.params.id },
-      {
-        'verification.portfolioReviewed': false,
-        'verification.approved': false,
-        'verification.rejectedAt': new Date(),
-        'verification.reviewedAt': new Date(),
-        'verification.rejectionReason': reason,
-        'adminNotes.rejectionNotes': notes,
-        updatedAt: new Date()
-      },
-      { new: true }
-    );
-
-    if (!artist) {
-      return res.status(404).json({ success: false, error: 'Artist not found' });
-    }
-
-    console.log('❌ Artist rejected:', artist.basicInfo.fullName);
-    res.json({ success: true, artist });
-  } catch (error) {
-    console.error('❌ Error rejecting artist:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// Auction routes
-app.post('/api/auctions', async (req, res) => {
-  try {
-    const auction = new Auction(req.body);
-    await auction.save();
-    console.log('✅ Auction created:', auction.title);
-    res.status(201).json({ success: true, auction });
-  } catch (error) {
-    console.error('❌ Error creating auction:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-app.get('/api/auctions', async (req, res) => {
-  try {
-    const auctions = await Auction.find().sort({ createdAt: -1 });
-    res.json({ success: true, auctions });
-  } catch (error) {
-    console.error('❌ Error fetching auctions:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// Report routes
-app.post('/api/reports', async (req, res) => {
-  try {
-    const report = new Report(req.body);
-    await report.save();
-    console.log('🚨 Report submitted:', report.reportType);
-    res.status(201).json({ success: true, report });
-  } catch (error) {
-    console.error('❌ Error creating report:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-app.get('/api/reports', async (req, res) => {
-  try {
-    const reports = await Report.find().sort({ createdAt: -1 });
-    res.json({ success: true, reports });
-  } catch (error) {
-    console.error('❌ Error fetching reports:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// Statistics endpoint
-app.get('/api/stats', async (req, res) => {
-  try {
-    const totalArtists = await Artist.countDocuments();
-    const verifiedArtists = await Artist.countDocuments({ 'verification.approved': true });
-    const pendingArtists = await Artist.countDocuments({
-      'verification.portfolioSubmitted': true,
-      'verification.portfolioReviewed': false,
-      'verification.approved': { $ne: false }
-    });
-    const rejectedArtists = await Artist.countDocuments({ 'verification.approved': false });
-
-    const totalAuctions = await Auction.countDocuments();
-    const activeAuctions = await Auction.countDocuments({ status: 'active' });
-
-    const totalReports = await Report.countDocuments();
-    const pendingReports = await Report.countDocuments({ status: 'pending' });
-
-    res.json({
-      success: true,
-      stats: {
-        artists: {
-          total: totalArtists,
-          verified: verifiedArtists,
-          pending: pendingArtists,
-          rejected: rejectedArtists
-        },
-        auctions: {
-          total: totalAuctions,
-          active: activeAuctions
-        },
-        reports: {
-          total: totalReports,
-          pending: pendingReports
-        }
-      }
-    });
-  } catch (error) {
-    console.error('❌ Error fetching stats:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// Start server
-app.listen(PORT, () => {
-  console.log(`🚀 SurrealBid API server running on port ${PORT}`);
-  console.log(`📊 Health check: http://localhost:${PORT}/api/health`);
+app.listen(config.port, () => {
+  console.log(`Server running on ${config.appUrl}`);
 });
