@@ -4626,3 +4626,20 @@ footer { display: flex; justify-content: center; align-items: center; flex-wrap:
 .sb-google-button { display: flex; justify-content: center; min-height: 44px; }
 .sb-or { display: flex; align-items: center; gap: 12px; margin-top: 18px; color: #8f8990; font: 500 10px 'DM Mono', monospace; letter-spacing: .08em; text-transform: uppercase; }
 .sb-or::before, .sb-or::after { content: ''; flex: 1; height: 1px; background: rgba(255,255,255,.12); }
+
+/* WhatsApp sign-in and admin voice notes */
+.sb-whatsapp-btn { display: flex; width: 100%; min-height: 44px; margin-top: 10px; align-items: center; justify-content: center; gap: 10px; border: 1px solid rgba(37,211,102,.45); border-radius: 999px; background: rgba(37,211,102,.08); color: #d7f7e3; font: 600 14px 'DM Sans', sans-serif; cursor: pointer; }
+.sb-whatsapp-btn:hover { background: rgba(37,211,102,.16); }
+.sb-whatsapp-btn span { color: #25d366; font-size: 18px; }
+.sb-alt { margin-bottom: 18px; }
+.sb-wa-code { margin: 18px 0; color: #f0ebef; font: 600 40px/1 'DM Mono', monospace; letter-spacing: .25em; text-align: center; }
+.sb-wa-open { display: block; text-align: center; text-decoration: none; }
+.sb-wa-status { display: flex; align-items: center; gap: 8px; margin-top: 16px; color: #9e989f; font-size: 12px; }
+.sb-wa-dot { width: 8px; height: 8px; border-radius: 50%; background: #25d366; animation: sbPulse 1.4s ease-in-out infinite; }
+@keyframes sbPulse { 50% { opacity: .25; } }
+.apply-whatsapp { margin-top: 26px; border-left-color: #25d366; }
+.apply-whatsapp .apply-text-btn { display: inline-block; margin-top: 10px; text-decoration: none; }
+.admin-voice { display: grid; gap: 10px; }
+.admin-voice div { display: grid; gap: 4px; }
+.admin-voice span { color: #8f8990; font: 500 10px 'DM Mono', monospace; text-transform: uppercase; letter-spacing: .06em; }
+.admin-voice audio { width: 100%; }

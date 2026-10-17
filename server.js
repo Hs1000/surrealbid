@@ -9,6 +9,7 @@ const config = require("./lib/config");
 const { captureError } = require("./lib/monitoring");
 const { HttpError, sendOk } = require("./lib/http");
 const { startAuctionCloser } = require("./lib/auctionCloser");
+const { runMigrations } = require("./lib/migrations");
 
 const authRoutes = require("./routes/auth");
 const artistRoutes = require("./routes/artists");
@@ -16,6 +17,7 @@ const auctionRoutes = require("./routes/auctions");
 const adminRoutes = require("./routes/admin");
 const publicRoutes = require("./routes/public");
 const payments = require("./routes/payments");
+const whatsapp = require("./routes/whatsapp");
 
 const app = express();
 app.disable("x-powered-by");
@@ -34,6 +36,7 @@ app.use(
         "font-src": ["'self'", "https://fonts.gstatic.com"],
         "img-src": ["'self'", "data:", "blob:", "https:"],
         "connect-src": ["'self'", "https://accounts.google.com/gsi/", "https://api.exchangerate-api.com", "https://api.razorpay.com", "https://lumberjack.razorpay.com"],
+        "media-src": ["'self'", "https://res.cloudinary.com"],
         "frame-src": ["https://api.razorpay.com", "https://checkout.razorpay.com", "https://accounts.google.com/gsi/"],
         "upgrade-insecure-requests": config.isProduction ? [] : null,
       },
@@ -59,8 +62,10 @@ const limiter = (windowMinutes, limit, message) =>
     handler: (req, res) => res.status(429).json({ success: false, error: message }),
   });
 
-app.use("/api", limiter(1, 300, "Too many requests. Please slow down."));
+const apiLimiter = limiter(1, 300, "Too many requests. Please slow down.");
+app.use("/api", (req, res, next) => (req.path === "/whatsapp/webhook" ? next() : apiLimiter(req, res, next)));
 app.use(["/api/auth/login", "/api/auth/signup", "/api/auth/google", "/api/admin/login"], limiter(15, 20, "Too many sign-in attempts. Try again in a few minutes."));
+app.use("/api/whatsapp/login/start", limiter(15, 20, "Too many sign-in attempts. Try again in a few minutes."));
 app.use(["/api/auth/forgot-password", "/api/auth/resend-verification"], limiter(60, 5, "Too many emails requested. Try again later."));
 app.use(["/api/reports", "/api/contact"], limiter(60, 10, "Too many submissions. Try again later."));
 app.use("/api/artists/apply", limiter(60, 5, "Too many applications. Try again later."));
@@ -69,6 +74,7 @@ app.post("/api/auctions/:id/bids", limiter(1, 30, "You're bidding very quickly. 
 // ---------------- BODY PARSING ----------------
 // The webhook needs the raw body to check Razorpay's signature, so it's mounted before JSON parsing.
 app.post("/api/payments/webhook", express.raw({ type: "application/json", limit: "1mb" }), payments.webhook);
+app.post("/api/whatsapp/webhook", express.raw({ type: "application/json", limit: "2mb" }), whatsapp.receiveWebhook);
 
 // Larger limits only where images are uploaded.
 app.use("/api/artists/apply", express.json({ limit: "40mb" }));
@@ -84,6 +90,7 @@ app.use("/api/artists", artistRoutes);
 app.use("/api/auctions", auctionRoutes);
 app.use("/api/payments", payments.router);
 app.use("/api/admin", adminRoutes);
+app.use("/api/whatsapp", whatsapp.router);
 app.use("/api", publicRoutes);
 app.use("/api", (req, res, next) => next(new HttpError(404, "Not found.")));
 
@@ -125,6 +132,7 @@ process.on("unhandledRejection", (err) => captureError(err, { route: "unhandledR
 mongoose
   .connect(config.mongoUri)
   .then(() => console.log("MongoDB connected"))
+  .then(() => runMigrations())
   .catch((err) => console.error("MongoDB connection error:", err.message));
 
 startAuctionCloser();

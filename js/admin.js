@@ -106,7 +106,9 @@ async function loadPendingArtists() {
           <div class="admin-artist-card-avatar">${info.profilePhoto ? `<img src="${esc(info.profilePhoto)}" alt="" />` : '<span class="admin-artist-avatar-placeholder">👤</span>'}</div>
           <div class="admin-artist-card-info">
             <h3 class="admin-artist-name">${esc(info.fullName)}</h3>
-            <a href="mailto:${esc(info.email)}" class="admin-artist-email">${esc(info.email)}</a>
+            ${info.email ? `<a href="mailto:${esc(info.email)}" class="admin-artist-email">${esc(info.email)}</a>` : ''}
+            ${info.phone ? `<span class="admin-artist-location">${esc(formatPhone(info.phone))}</span>` : ''}
+            ${artist.source === 'whatsapp' ? '<span class="dash-badge ok">Via WhatsApp</span>' : ''}
             ${info.location ? `<span class="admin-artist-location">${esc(info.location)}</span>` : ''}
             <div class="admin-artist-meta">
               <span class="admin-artist-meta-item"><strong>Style</strong> ${esc((profile.artisticStyle || []).join(', ') || '—')}</span>
@@ -134,8 +136,10 @@ function viewArtistDetails(artistId) {
   const { body } = openDialog({ title: a.basicInfo.fullName, kicker: 'Artist application', wide: true });
   body.innerHTML = `
     <dl class="admin-detail">
-      <dt>Email</dt><dd>${esc(a.basicInfo.email)}</dd>
-      <dt>Phone</dt><dd>${esc(a.basicInfo.phone) || '—'}</dd>
+      <dt>Applied via</dt><dd>${a.source === 'whatsapp' ? 'WhatsApp bot' : 'Website'}</dd>
+      <dt>Email</dt><dd>${esc(a.basicInfo.email) || '—'}</dd>
+      <dt>Phone</dt><dd>${a.basicInfo.phone ? (/^\d+$/.test(a.basicInfo.phone) ? `<a href="https://wa.me/${esc(a.basicInfo.phone)}" target="_blank" rel="noopener">${esc(formatPhone(a.basicInfo.phone))}</a>` : esc(a.basicInfo.phone)) : '—'}</dd>
+      <dt>Makes</dt><dd>${esc(a.artisticProfile.medium) || '—'}</dd>
       <dt>Location</dt><dd>${esc(a.basicInfo.location)}</dd>
       <dt>Experience</dt><dd>${esc(a.artisticProfile.yearsExperience)}</dd>
       <dt>Training</dt><dd>${esc(a.artisticProfile.education) || '—'}</dd>
@@ -147,6 +151,8 @@ function viewArtistDetails(artistId) {
     </dl>
     <h3 class="admin-detail-head">Statement</h3>
     <p class="admin-detail-bio">${esc(a.artisticProfile.bio)}</p>
+    ${(a.portfolio.voiceNotes || []).length ? `<h3 class="admin-detail-head">Voice notes</h3>
+    <div class="admin-voice">${a.portfolio.voiceNotes.map(v => `<div><span>${esc({ medium: 'What they make', story: 'About their work' }[v.question] || v.question)}</span><audio controls preload="none" src="${esc(v.url)}"></audio></div>`).join('')}</div>` : ''}
     <h3 class="admin-detail-head">Portfolio</h3>
     <div class="admin-portfolio">${a.portfolio.images.map(src => `<a href="${esc(src)}" target="_blank" rel="noopener"><img src="${esc(src)}" alt="" /></a>`).join('') || '<p>No images submitted.</p>'}</div>
     <div class="sb-dialog-actions">

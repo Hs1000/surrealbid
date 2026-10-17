@@ -8,7 +8,7 @@ const artistSchema = new mongoose.Schema(
     basicInfo: {
       artistId: { type: String, required: true, unique: true },
       fullName: { type: String, required: true, trim: true },
-      email: { type: String, required: true, lowercase: true, trim: true },
+      email: { type: String, default: "", lowercase: true, trim: true },
       phone: { type: String, default: "" },
       location: { type: String, default: "" },
       profilePhoto: { type: String, default: "" },
@@ -19,13 +19,19 @@ const artistSchema = new mongoose.Schema(
       artisticStyle: { type: [String], default: [] },
       yearsExperience: { type: String, default: "" },
       education: { type: String, default: "" },
+      medium: { type: String, default: "" },
       awards: { type: String, default: "" },
       exhibitions: { type: String, default: "" },
     },
 
     portfolio: {
       images: { type: [String], default: [] },
+      // Original voice answers from the WhatsApp application, for reviewers to listen to.
+      voiceNotes: { type: [{ question: String, url: String }], default: [] },
     },
+
+    // "web" (the website form) or "whatsapp" (the WhatsApp bot).
+    source: { type: String, enum: ["web", "whatsapp"], default: "web" },
 
     identityVerification: {
       website: { type: String, default: "" },

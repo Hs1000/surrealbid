@@ -67,8 +67,8 @@ router.post(
       basicInfo: {
         artistId: existing?.basicInfo.artistId || randomId("artist"),
         fullName,
-        email: req.user.email,
-        phone: cleanString(body.phone, 40),
+        email: req.user.email || "",
+        phone: cleanString(body.phone, 40) || req.user.phone || "",
         location,
         profilePhoto,
       },

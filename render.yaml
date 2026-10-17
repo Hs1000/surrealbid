@@ -41,5 +41,16 @@ services:
       # Images via Cloudinary (dashboard → API Keys → "API environment variable")
       - key: CLOUDINARY_URL
         sync: false
+      # WhatsApp (optional; features stay hidden until these are set)
+      - key: WHATSAPP_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WHATSAPP_DISPLAY_NUMBER
+        sync: false
+      - key: WHATSAPP_VERIFY_TOKEN
+        sync: false
+      - key: WHATSAPP_APP_SECRET
+        sync: false
       # Add when you have them:
       # RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, RAZORPAY_WEBHOOK_SECRET

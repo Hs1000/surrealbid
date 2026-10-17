@@ -9,7 +9,7 @@ onPage('/contact', () => {
 
   if (session.user) {
     $('#contact-name').value ||= session.user.name;
-    $('#contact-email').value ||= session.user.email;
+    $('#contact-email').value ||= session.user.email || '';
   }
 
   form.addEventListener('input', e => validateContactField(e.target));

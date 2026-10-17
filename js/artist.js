@@ -30,7 +30,7 @@ function renderApplyGate() {
         <button type="button" class="apply-text-btn" onclick="openAuthDialog('signin', { reason: 'Artist application' })">I already have one</button>
       </div>`);
   }
-  if (!user.emailVerified) {
+  if (!user.verified) {
     return show(`
       <p class="about-kicker">One more step</p>
       <h2>Confirm your email</h2>
@@ -44,7 +44,7 @@ function renderApplyGate() {
     return show(`
       <p class="about-kicker">Application received</p>
       <h2>Your work is <em>under review.</em></h2>
-      <p>We read every application by hand and will email ${esc(user.email)} with our decision, usually within a few days.</p>
+      <p>We read every application by hand and will contact you at ${esc(user.email || formatPhone(user.phone))} with our decision, usually within a few days.</p>
       <div class="apply-gate-actions"><button type="button" class="btn apply-next" onclick="navigateTo('/dashboard')">Go to your dashboard <b aria-hidden="true">→</b></button></div>`);
   }
   if (artist?.status === 'approved') {
@@ -68,6 +68,10 @@ function renderApplyGate() {
 }
 
 onPage('/artist-register', () => {
+  loadWhatsAppConfig().then(({ enabled, number }) => {
+    if (enabled) $('#apply-whatsapp-link').href = `https://wa.me/${number}?text=${encodeURIComponent('Hi, I want to apply as an artist')}`;
+  });
+  revealWhatsAppOptions($('#artist-register-page'));
   const formVisible = renderApplyGate() === null;
   if (!formVisible) return;
   if ($('#artist-registration-form').dataset.started) return; // keep progress if they navigate away and back
@@ -81,7 +85,7 @@ onPage('/artist-register', () => {
   initBioWordCount();
 
   $('#artist-fullname').value = session.user.name;
-  $('#artist-email').value = session.user.email;
+  $('#artist-email').value = session.user.email || (session.user.phone ? `WhatsApp ${formatPhone(session.user.phone)}` : '');
 });
 
 // ---------------- STEPS ----------------
@@ -334,7 +338,7 @@ function renderSubmitGate() {
       <div class="apply-gate-actions"><button type="button" class="btn apply-next" onclick="openAuthDialog('signin', { reason: 'List artwork' })">Sign in <b aria-hidden="true">→</b></button>
       <button type="button" class="apply-text-btn" onclick="navigateTo('/artist-register')">Apply as an artist</button></div>`);
   }
-  if (!session.user.emailVerified) {
+  if (!session.user.verified) {
     return show(`<h3>Confirm your email first</h3><p>We sent a link to ${esc(session.user.email)}.</p>
       <div class="apply-gate-actions"><button type="button" class="btn apply-next" onclick="resendVerification(this)">Resend the link <b aria-hidden="true">↻</b></button></div>`);
   }

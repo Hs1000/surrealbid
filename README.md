@@ -25,6 +25,12 @@ Open http://localhost:3000. Without `SMTP_HOST`, every email (confirmation links
 7. **Payment** (`/checkout?auction=…`) — only the winner can pay. The server creates the Razorpay order for the winning amount and confirms payment by checking Razorpay's signature (and, optionally, the webhook). The artist sees the buyer's delivery details on their dashboard once paid.
 8. **Dashboard** (`/dashboard`) — account status, application status, the artist's listings and sales, and the collector's live, won and lost bids.
 
+## WhatsApp (optional)
+
+Artists can apply entirely on WhatsApp (Hindi or English, text or voice notes, photos), and anyone can sign in with "Continue with WhatsApp": the site shows a code and the user sends it to your WhatsApp number. Because the user starts the chat, sign-in and the application bot use free service conversations.
+
+Setup: create a Meta app with the WhatsApp product, set the `WHATSAPP_*` variables (see `.env.example`), and register the webhook `https://YOUR-APP/api/whatsapp/webhook` with your `WHATSAPP_VERIFY_TOKEN`, subscribed to `messages`. Voice notes are stored for reviewers to listen to in /admin (no transcription yet).
+
 ## Project layout
 
 ```

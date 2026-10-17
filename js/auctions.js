@@ -397,7 +397,7 @@ function openReportModal(auctionId) {
         </select></div>
       <div class="form-row"><label for="report-description">Details (optional)</label><textarea id="report-description" rows="3" placeholder="Anything that will help us look into this"></textarea></div>
       <div class="form-row"><label for="report-evidence">Evidence links (optional)</label><textarea id="report-evidence" rows="2" placeholder="Links to the original work, copyright records…"></textarea></div>
-      ${session.user ? '' : '<div class="form-row"><label for="report-email">Your email</label><input id="report-email" type="email" placeholder="So we can follow up" required /></div>'}
+      ${session.user?.email ? '' : '<div class="form-row"><label for="report-email">Your email</label><input id="report-email" type="email" placeholder="So we can follow up" required /></div>'}
       <p class="form-hint">We review every report. Knowingly false reports may lead to account restrictions.</p>
       <p class="sb-form-error" role="alert"></p>
       <div class="sb-dialog-actions"><button type="button" class="sb-btn-ghost" data-cancel>Cancel</button><button type="submit" class="sb-btn">Submit report</button></div>

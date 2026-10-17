@@ -37,15 +37,20 @@ onPage('/dashboard', async () => {
       <div>
         <p class="about-kicker">Your account</p>
         <h1>Hello, <em>${esc(user.name.split(' ')[0])}.</em></h1>
-        <p class="dash-email">${esc(user.email)} ${user.emailVerified ? '<span class="dash-badge ok">Email confirmed</span>' : '<span class="dash-badge warn">Email not confirmed</span>'}</p>
+        <p class="dash-email">
+          ${user.email ? `${esc(user.email)} ${user.emailVerified ? '<span class="dash-badge ok">Email confirmed</span>' : '<span class="dash-badge warn">Email not confirmed</span>'}` : ''}
+          ${user.phone ? `<span>WhatsApp ${esc(formatPhone(user.phone))}</span> <span class="dash-badge ok">Verified</span>` : ''}
+        </p>
       </div>
       <div class="dash-header-actions">
-        ${user.emailVerified ? '' : '<button type="button" class="btn apply-next" onclick="resendVerification(this)">Resend confirmation <b aria-hidden="true">↻</b></button>'}
+        ${user.email && !user.emailVerified ? '<button type="button" class="btn apply-next" onclick="resendVerification(this)">Resend confirmation <b aria-hidden="true">↻</b></button>' : ''}
+        ${!user.phone ? '<button type="button" class="apply-text-btn" data-whatsapp-only hidden onclick="openWhatsAppDialog({ link: true })">Link WhatsApp</button>' : ''}
         <button type="button" class="apply-text-btn" onclick="signOut()">Sign out</button>
       </div>
     </header>
     ${renderArtistSection(artist, mine)}
     ${renderCollectorSection(bidding)}`;
+  revealWhatsAppOptions(root);
 });
 
 function renderArtistSection(artist, auctions) {

@@ -7,6 +7,7 @@ const Report = require("../models/Report");
 const User = require("../models/User");
 const ContactMessage = require("../models/ContactMessage");
 const { emails } = require("../lib/mailer");
+const { notifyArtist } = require("../lib/whatsappBot");
 const { signAdminToken, requireAdmin } = require("../lib/auth");
 const { adminAuction } = require("../lib/serialize");
 const { HttpError, sendOk, asyncHandler, cleanString } = require("../lib/http");
@@ -57,6 +58,7 @@ async function review(artistId, approved, reason = "") {
 
   await User.findByIdAndUpdate(artist.userId, { $set: { role: approved ? "artist" : "buyer", isApproved: approved } });
   await (approved ? emails.artistApproved(artist) : emails.artistRejected(artist, reason));
+  notifyArtist(artist, approved ? "approved" : "rejected", reason).catch(() => {});
   return artist;
 }
 

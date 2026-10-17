@@ -218,8 +218,8 @@ function updateAccountNav() {
     link.textContent = session.user.name.split(' ')[0];
     link.setAttribute('href', '/dashboard');
     link.onclick = e => { e.preventDefault(); navigateTo('/dashboard'); };
-    link.classList.toggle('nav-account-unverified', !session.user.emailVerified);
-    link.title = session.user.emailVerified ? 'Your account' : 'Your account — email not confirmed yet';
+    link.classList.toggle('nav-account-unverified', !session.user.verified);
+    link.title = session.user.verified ? 'Your account' : 'Your account — email not confirmed yet';
   } else {
     link.textContent = 'Sign in';
     link.setAttribute('href', '/dashboard');
@@ -247,7 +247,7 @@ function openAuthDialog(mode = 'signin', { reason = '', onSuccess } = {}) {
   }[mode];
 
   body.innerHTML = `
-    ${mode !== 'forgot' ? '<div class="sb-google" hidden><div class="sb-google-button"></div><p class="sb-or"><span>or use email</span></p></div>' : ''}
+    ${mode !== 'forgot' ? '<div class="sb-alt"><div class="sb-google" hidden><div class="sb-google-button"></div></div><button type="button" class="sb-whatsapp-btn" data-whatsapp-only hidden><span aria-hidden="true">✆</span> Continue with WhatsApp</button><p class="sb-or" hidden><span>or use email</span></p></div>' : ''}
     <form class="sb-form" novalidate>
       ${mode === 'forgot' ? '<p class="sb-dialog-text">Enter your email and we’ll send you a link to choose a new password.</p>' : ''}
       ${nameField}
@@ -260,6 +260,8 @@ function openAuthDialog(mode = 'signin', { reason = '', onSuccess } = {}) {
     </form>`;
 
   if (mode !== 'forgot') {
+    $('.sb-whatsapp-btn', body)?.addEventListener('click', () => openWhatsAppDialog({ reason, onSuccess }));
+    revealWhatsAppOptions(body).then(shown => { if (shown) { const or = $('.sb-or', body); if (or) or.hidden = false; } });
     renderGoogleButton(body, mode, async credential => {
       const data = await api('POST', '/api/auth/google', { credential });
       setSession(data);
@@ -310,6 +312,75 @@ function openAuthDialog(mode = 'signin', { reason = '', onSuccess } = {}) {
   });
 }
 
+// ---------------- WHATSAPP SIGN-IN ----------------
+// The site shows a one-time code; the user sends it to our WhatsApp number. Because the user starts
+// the chat, this costs nothing and proves they own the number. The page polls until it arrives.
+let whatsappConfig = null;
+
+function formatPhone(digits) {
+  const d = String(digits || "");
+  if (!d) return "";
+  return d.startsWith("91") && d.length === 12 ? `+91 ${d.slice(2, 7)} ${d.slice(7)}` : `+${d}`;
+}
+
+function loadWhatsAppConfig() {
+  if (!whatsappConfig) whatsappConfig = api('GET', '/api/whatsapp/config').catch(() => ({ enabled: false }));
+  return whatsappConfig;
+}
+
+/** Shows elements marked data-whatsapp-only when WhatsApp is set up. Resolves true if shown. */
+async function revealWhatsAppOptions(root = document) {
+  const { enabled } = await loadWhatsAppConfig();
+  $$('[data-whatsapp-only]', root).forEach(el => { el.hidden = !enabled; });
+  return !!enabled;
+}
+
+async function openWhatsAppDialog({ reason = '', onSuccess, link = false } = {}) {
+  const { body, close } = openDialog({ title: link ? 'Link WhatsApp' : 'Continue with WhatsApp', kicker: reason || 'SurrealBid account' });
+  body.innerHTML = '<p class="sb-dialog-text">Preparing your code…</p>';
+
+  let start;
+  try {
+    start = await api('POST', '/api/whatsapp/login/start', { link });
+  } catch (err) {
+    body.innerHTML = `<p class="sb-form-error">${esc(err.message)}</p>`;
+    return;
+  }
+
+  body.innerHTML = `
+    <p class="sb-dialog-text">Send this code to SurrealBid on WhatsApp. Tap the button to open WhatsApp with the message ready, then press send.</p>
+    <p class="sb-wa-code" aria-label="Your code">${esc(start.code)}</p>
+    <a class="sb-btn sb-btn-block sb-wa-open" href="${esc(start.link)}" target="_blank" rel="noopener">Open WhatsApp and send</a>
+    <p class="sb-fine-print">Or message <strong>${esc(formatPhone(start.number))}</strong> with: <strong>${esc(start.message)}</strong></p>
+    <p class="sb-wa-status" role="status"><span class="sb-wa-dot"></span> Waiting for your message…</p>
+    <p class="sb-form-error" role="alert"></p>`;
+
+  const statusEl = $('.sb-wa-status', body);
+  const deadline = Date.now() + start.expiresInSeconds * 1000;
+  const poll = async () => {
+    if (!document.body.contains(body)) return; // dialog closed
+    if (Date.now() > deadline) { statusEl.textContent = 'This code has expired. Close and try again.'; return; }
+    try {
+      const result = await api('POST', '/api/whatsapp/login/status', { requestId: start.requestId });
+      if (result.status === 'verified') {
+        setSession(result);
+        close();
+        toast(link ? 'WhatsApp is linked to your account.' : `Welcome, ${result.user.name.split(' ')[0]}.`, 'success');
+        if (onSuccess) onSuccess(result.user);
+        rerenderCurrentPage();
+        return;
+      }
+      if (result.status === 'error' || result.status === 'expired') {
+        $('.sb-form-error', body).textContent = result.error || 'This code has expired. Close and try again.';
+        statusEl.hidden = true;
+        return;
+      }
+    } catch { /* network blip: keep polling */ }
+    setTimeout(poll, 2500);
+  };
+  setTimeout(poll, 2500);
+}
+
 // ---------------- GOOGLE SIGN-IN ----------------
 // Uses Google Identity Services; shown only when the server has GOOGLE_CLIENT_ID set.
 let googleSetup = null;
@@ -358,6 +429,8 @@ async function renderGoogleButton(dialogBody, mode, onCredential) {
     width: Math.min(376, wrap.clientWidth || 376),
   });
   wrap.hidden = false;
+  const or = $('.sb-or', dialogBody);
+  if (or) or.hidden = false;
 }
 
 /** Resolves with the signed-in user, opening the sign-in dialog first if needed (null if dismissed). */
@@ -380,7 +453,7 @@ function requireSignIn(reason) {
 async function requireVerified(reason) {
   const user = await requireSignIn(reason);
   if (!user) return null;
-  if (user.emailVerified) return user;
+  if (user.verified) return user;
   showVerifyEmailDialog();
   return null;
 }
