@@ -1,0 +1,46 @@
+# Render Blueprint: New → Blueprint → select this repo.
+# Values marked `sync: false` are secrets you paste in the Render dashboard (copy them from your local .env).
+services:
+  - type: web
+    name: surrealbid
+    runtime: node
+    # Starter keeps the server awake (auctions close on time) and allows outbound email.
+    # Change to "free" to try it out first.
+    plan: starter
+    branch: main
+    autoDeploy: true
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: TRUST_PROXY
+        value: "1"
+      - key: NODE_VERSION
+        value: "20"
+      # Set this to the service URL Render gives you, e.g. https://surrealbid.onrender.com
+      - key: APP_URL
+        sync: false
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: ADMIN_PASSWORD_HASH
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      # Add when you have them:
+      # RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, RAZORPAY_WEBHOOK_SECRET
