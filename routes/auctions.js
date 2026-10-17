@@ -7,8 +7,15 @@ const { resolveImage } = require("../lib/uploads");
 const { requireUser, requireVerifiedUser, requireApprovedArtist } = require("../lib/auth");
 const { publicAuction, ownerAuction, bidderAuction } = require("../lib/serialize");
 const { HttpError, sendOk, sendCreated, asyncHandler, cleanString, cleanUrl } = require("../lib/http");
+const { closeOverdueAuctions } = require("../lib/auctionCloser");
 
 const router = express.Router();
+
+// Make sure anything past its end time is closed before we show or sell it.
+router.get(["/", "/mine", "/bidding", "/:id"], asyncHandler(async (req, res, next) => {
+  await closeOverdueAuctions();
+  next();
+}));
 
 const MINUTE = 60 * 1000;
 const MIN_STARTING_BID = 100;

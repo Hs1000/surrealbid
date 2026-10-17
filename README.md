@@ -48,6 +48,14 @@ Only `css/`, `js/`, `uploads/` and `index.html` are served to the browser.
 - Rate limits on sign-in, sign-up, password reset, bidding, applications, reports and contact.
 - Uploaded images are type-checked by their file contents and size-limited.
 
+## Deploying (Render free)
+
+1. Render → **New → Blueprint** → this repo (`render.yaml` sets everything up).
+2. Paste the secret values when asked: `MONGODB_URI`, `JWT_SECRET`, `ADMIN_PASSWORD_HASH`, `GOOGLE_CLIENT_ID`, `BREVO_API_KEY`, `MAIL_FROM`, `ADMIN_EMAIL`, `CLOUDINARY_URL`, `APP_URL`.
+3. MongoDB Atlas → Network Access must allow `0.0.0.0/0`.
+4. Add an UptimeRobot (free) HTTP monitor on `https://YOUR-APP.onrender.com/api/health` every 5 minutes so the free service doesn't sleep.
+5. Add the live URL to Google Cloud → Clients → Authorized JavaScript origins.
+
 ## Before launch
 
 - [ ] **Hosting**: a Node host (Render, Railway, Fly.io, a VPS) with a **persistent disk** for `UPLOAD_DIR`, or move uploads to S3/Cloudinary in `lib/uploads.js`.

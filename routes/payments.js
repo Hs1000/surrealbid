@@ -8,6 +8,7 @@ const { emails } = require("../lib/mailer");
 const { safeEqual } = require("../lib/tokens");
 const { requireUser } = require("../lib/auth");
 const { HttpError, sendOk, asyncHandler, cleanString } = require("../lib/http");
+const { closeOverdueAuctions } = require("../lib/auctionCloser");
 
 const router = express.Router();
 
@@ -20,6 +21,7 @@ function requirePayments() {
 }
 
 async function findWonAuction(auctionId, user) {
+  await closeOverdueAuctions();
   const auction = await Auction.findOne({ id: cleanString(auctionId, 100) });
   if (!auction) throw new HttpError(404, "Auction not found.");
   if (auction.status !== "ended" || !auction.winner?.userId) throw new HttpError(409, "This auction hasn't closed yet.");

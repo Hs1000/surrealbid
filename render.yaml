@@ -4,9 +4,10 @@ services:
   - type: web
     name: surrealbid
     runtime: node
-    # Starter keeps the server awake (auctions close on time) and allows outbound email.
-    # Change to "free" to try it out first.
-    plan: starter
+    # Free plan. Email goes through Brevo's HTTP API and images through Cloudinary, so neither
+    # depends on SMTP ports or the (temporary) free-plan disk. Keep it awake with an uptime pinger
+    # on /api/health; overdue auctions are also closed whenever the catalogue is loaded.
+    plan: free
     branch: main
     autoDeploy: true
     buildCommand: npm install
@@ -30,17 +31,15 @@ services:
         sync: false
       - key: GOOGLE_CLIENT_ID
         sync: false
-      - key: SMTP_HOST
-        sync: false
-      - key: SMTP_PORT
-        sync: false
-      - key: SMTP_USER
-        sync: false
-      - key: SMTP_PASS
+      # Email via Brevo (brevo.com → SMTP & API → API Keys). MAIL_FROM must be a sender verified in Brevo.
+      - key: BREVO_API_KEY
         sync: false
       - key: MAIL_FROM
         sync: false
       - key: ADMIN_EMAIL
+        sync: false
+      # Images via Cloudinary (dashboard → API Keys → "API environment variable")
+      - key: CLOUDINARY_URL
         sync: false
       # Add when you have them:
       # RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, RAZORPAY_WEBHOOK_SECRET
